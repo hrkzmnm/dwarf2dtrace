@@ -8,14 +8,6 @@ from elftools.dwarf.die import DIE
 ENCODING = 'utf-8'
 
 class TypeDG:
-    TAGS_for_deps =(
-        "DW_TAG_formal_parameter",
-        "DW_TAG_member",
-        "DW_TAG_enumerator",
-    )
-    TAGS_for_refs = (
-        "DW_TAG_pointer_type",
-    )
     TAGS_for_types = (
         "DW_TAG_array_type",
         "DW_TAG_enumeration_type",
@@ -24,17 +16,11 @@ class TypeDG:
         "DW_TAG_union_type",
         "DW_TAG_subprogram",
     )
-    TAGS_for_base = (
-        "DW_TAG_base_type",
-        "DW_TAG_unspecified_type",
-    )
     TAGS_for_qualifiers = (
         "DW_TAG_const_type",
-        "DW_TAG_packed_type",
         "DW_TAG_volatile_type",
         "DW_TAG_restrict_type",
     )
-    TAGS_to_track = TAGS_for_qualifiers
 
     def __init__(self,
                  CU: elftools.dwarf.compileunit.CompileUnit,
@@ -96,7 +82,6 @@ class TypeDG:
                 self.track(die, shown, 0)
 
     def gen_decl(self, die: Optional[DIE], shown, name: str = None):
-
         if die is None:
             if name is None:
                 return "void"
@@ -133,8 +118,10 @@ class TypeDG:
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
                 args.append(self.gen_decl(self._get_attr__type_die(child), shown, None))
+            if not args:
+                args = [self.gen_decl(None, shown, None)]
             return (self.gen_decl(rettype, shown, None)
-                    + " " + name + "(" + (", ".join(args)) + ")")
+                    + " (" + name + ")(" + (", ".join(args)) + ")")
 
         elif die.tag == "DW_TAG_structure_type":
             return ("struct "
@@ -159,7 +146,8 @@ class TypeDG:
         elif die.tag == "DW_TAG_enumeration_type":
             return ("enum "
                     + self._get_attr__name(die)
-                    + " " + (name if name else ""))
+                    + ((" " + name) if name else ""))
+
         raise Exception("cannot generate decl. for ", die)
         return die.tag
 
@@ -186,13 +174,10 @@ class TypeDG:
                     continue
                 self.track(self._get_attr__type_die(child), shown, depth)
             
-        elif die.tag in ("DW_TAG_pointer_type",
-        ):
+        elif die.tag == "DW_TAG_pointer_type":
             self.track(self._get_attr__type_die(die), shown, depth, True)
 
-        elif die.tag in ("DW_TAG_const_type",
-                         "DW_TAG_restricted_type",
-                         "DW_TAG_volatile_type",):
+        elif die.tag in self.TAGS_for_qualifiers:
             self.track(self._get_attr__type_die(die), shown, depth)
 
         elif die.tag == "DW_TAG_typedef":
@@ -216,7 +201,7 @@ class TypeDG:
                     moff = child.attributes['DW_AT_data_member_location'].value
                     self.track(mtype, shown, depth)
                     members.append("\t" + self.gen_decl(mtype, shown, mname)
-                                   + "; /* +0x{:x} */".format(moff));
+                                   + ";\t/* +0x{:x} */".format(moff));
                 if members:
                     print("\n/* @", self._get_attr__srcloc(die), "*/")
                     print("struct " + name + " {")
@@ -261,15 +246,14 @@ class TypeDG:
             for child in die.iter_children():
                 if child.tag != "DW_TAG_enumerator":
                     continue
-                print (child)
                 ctval = child.attributes["DW_AT_const_value"]
                 members.append( (",\t" if members else "\t")
                                 + self._get_attr__name(child)
                                 + (" = {}".format(ctval.value) if ctval else ""))
-            print("enum {")
+            print(self.gen_decl(die, shown, None) + " {")
             for line in members:
                 print(line)
-            print("}")
+            print("};")
 
         elif die.tag == "DW_TAG_subprogram":
             pass
