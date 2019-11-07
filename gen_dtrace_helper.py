@@ -17,9 +17,9 @@ class TypeDG:
         "DW_TAG_subprogram": None,
     }
     TAGS_for_qualifiers = {
-        "DW_TAG_const_type",
-        "DW_TAG_volatile_type",
-        "DW_TAG_restrict_type",
+        "DW_TAG_const_type": "const",
+        "DW_TAG_volatile_type": "volatile",
+        "DW_TAG_restrict_type": "restrict",
     }
 
     def __init__(self,
@@ -121,13 +121,13 @@ class TypeDG:
             return (self.gen_decl(rettype, shown, None)
                     + " (" + name + ")(" + (", ".join(args)) + ")")
 
-        elif die.tag == "DW_TAG_const_type":
-            return ("const "
-                    + self.gen_decl(self._get_type_die(die), shown, name))
-
-        elif die.tag == "DW_TAG_volatile_type":
-            return ("volatile "
-                    + self.gen_decl(self._get_type_die(die), shown, name))
+        elif self.TAGS_for_qualifiers.get(die.tag, None):
+            if die.tag == "DW_TAG_restrict_type":
+                return (self.gen_decl(self._get_type_die(die), shown, name))
+            else:
+                stem = self.TAGS_for_qualifiers[die.tag]
+                return (stem + " "
+                        + self.gen_decl(self._get_type_die(die), shown, name))
 
         elif die.tag == "DW_TAG_array_type":
             elemtype = self._get_type_die(die)
@@ -144,11 +144,10 @@ class TypeDG:
             return (self._get_die_name(die)
                     + " " + (name if name else ""))
 
-        elif not (self.TAGS_for_types.get(die.tag, None) is None):
+        elif self.TAGS_for_types.get(die.tag, None):
             return (self._get_stem(die) + " "
                     + self._get_die_name(die, True)
                     + ((" " + name) if name else ""))
-            
 
         raise Exception("cannot generate decl. for ", die)
         return die.tag
