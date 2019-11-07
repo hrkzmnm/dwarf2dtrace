@@ -25,15 +25,15 @@ class TypeDG:
     def __init__(self,
                  CU: elftools.dwarf.compileunit.CompileUnit,
                  line_program: elftools.dwarf.lineprogram.LineProgram):
-
-        # attr['DW_AT_decl_file'] -> name
-        self.filedesc = dict( (le.dir_index, le.name.decode(ENCODING))
-                              for le in line_program['file_entry'])
         top = CU.get_top_DIE()
 
         self.cu_offset = CU.cu_offset
         self.fullpath = top.get_full_path()
 
+        # attr['DW_AT_decl_file'] -> name
+        self.filedesc = dict( (le.dir_index, le.name.decode(ENCODING))
+                              for le in line_program['file_entry'])
+        print(self.filedesc, line_program['file_entry'])
         named_types = {}
         def walk(die, names, depth: int = 0):
             name = self._get_attr__name(die)
@@ -58,10 +58,20 @@ class TypeDG:
 
     def _get_attr__srcloc(self, die :DIE) -> Optional[str]:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
+        if loc_file:
+            dir_index = loc_file.value
+            if 0 in self.filedesc:
+                dir_index -= 1
+            srcfile = self.filedesc.get(dir_index,
+                                        "+nowhere{}_".format(dir_index))
+        else:
+            srcfile = "+nowhere_"
         loc_line = die.attributes.get('DW_AT_decl_line', None)
-        return ( (self.filedesc.get((loc_file.value-1) if loc_file else None, "_nowhere_"))
-                 + (":{}".format(loc_line.value if loc_line else -1)) )
-
+        if loc_line:
+            srcline = ":{}".format(loc_line.value)
+        else:
+            srcline = ""
+        return (srcfile + srcline)
 
     def _get_attr__name(self, die :DIE, gensym: bool = False) -> Optional[str]:
         if 'DW_AT_name' in die.attributes:
