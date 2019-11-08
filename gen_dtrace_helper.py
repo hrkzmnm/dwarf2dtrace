@@ -36,9 +36,10 @@ class TypeDG:
 
         named_types = {}
         def walk(die, names, depth: int = 0):
-            name = self._get_die_name(die)
-            if (die.tag in self.TAGS_for_types) and name:
-                names.setdefault(name, set()).add(die)
+            if die.tag in self.TAGS_for_types:
+                given_name = self._get_die_name(die)
+                if given_name:
+                    names.setdefault(given_name, set()).add(die)
             yield ((die.offset - self.cu_offset), die)
             for child in die.iter_children():
                 yield from walk(child, names, depth+1)
@@ -58,7 +59,7 @@ class TypeDG:
         if loc_file:
             dir_index = loc_file.value
             if 0 in self.filedesc:
-                dir_index -= 1
+                dir_index -= 1 # DWARF >= v5
             srcfile = self.filedesc.get(dir_index,
                                         "_nowhere{}_".format(dir_index))
         else:
@@ -111,23 +112,15 @@ class TypeDG:
         
         elif die.tag == "DW_TAG_subroutine_type":
             rettype = self._get_type_die(die)
-            args = []
+            fparams = []
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
-                args.append(self.gen_decl(self._get_type_die(child), shown, None))
-            if not args:
-                args = [self.gen_decl(None, shown, None)]
+                fparams.append(self.gen_decl(self._get_type_die(child), shown, None))
+            if not fparams:
+                fparams = [self.gen_decl(None, shown, None)]
             return (self.gen_decl(rettype, shown, None)
-                    + " (" + name + ")(" + (", ".join(args)) + ")")
-
-        elif self.TAGS_for_qualifiers.get(die.tag, None):
-            if die.tag == "DW_TAG_restrict_type":
-                return (self.gen_decl(self._get_type_die(die), shown, name))
-            else:
-                stem = self.TAGS_for_qualifiers[die.tag]
-                return (stem + " "
-                        + self.gen_decl(self._get_type_die(die), shown, name))
+                    + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         elif die.tag == "DW_TAG_array_type":
             elemtype = self._get_type_die(die)
@@ -140,17 +133,22 @@ class TypeDG:
                 count = "[{}]".format(child.attributes["DW_AT_count"].value)
             return (self.gen_decl(elemtype, shown, None) + " " + name + count)
 
-        elif die.tag == "DW_TAG_typedef":
-            return (self._get_die_name(die)
-                    + " " + (name if name else ""))
+        elif self.TAGS_for_qualifiers.get(die.tag, None):
+            if die.tag == "DW_TAG_restrict_type":
+                return (self.gen_decl(self._get_type_die(die), shown, name))
+            stem = self.TAGS_for_qualifiers[die.tag]
+            return (stem + " "
+                    + self.gen_decl(self._get_type_die(die), shown, name))
 
         elif self.TAGS_for_types.get(die.tag, None):
+            if die.tag == "DW_TAG_typedef":
+                return (self._get_die_name(die)
+                        + " " + (name if name else ""))
             return (self._get_stem(die) + " "
                     + self._get_die_name(die, True)
                     + ((" " + name) if name else ""))
 
         raise Exception("cannot generate decl. for ", die)
-        return die.tag
 
     def track(self, die: Optional[DIE], shown, depth: int,
               maybe_incomplete: bool = False):
@@ -225,12 +223,11 @@ class TypeDG:
                 if child.tag != "DW_TAG_enumerator":
                     continue
                 ctval = child.attributes["DW_AT_const_value"]
-                members.append( (",\t" if members else "\t")
+                members.append( "\t"
                                 + self._get_die_name(child)
                                 + (" = {}".format(ctval.value) if ctval else ""))
             print(self.gen_decl(die, shown, None) + " {")
-            for line in members:
-                print(line)
+            print(",\n".join(members))
             print("};")
 
         else:
@@ -241,7 +238,6 @@ class TypeDG:
                 shown[die] = "declared"
         else:
             shown[die] = "defined"
-
 
 if __name__ == '__main__':
     import sys
