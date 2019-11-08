@@ -6,6 +6,8 @@ import elftools.elf.elffile
 from elftools.dwarf.die import DIE
 
 ENCODING = 'utf-8'
+class ParseError(Exception):
+    pass
 
 class TypeDG:
     TAGS_for_types = {
@@ -71,7 +73,7 @@ class TypeDG:
     def _get_stem(self, die):
         stem = self.TAGS_for_types.get(die.tag, None)
         if stem is None:
-            raise Exception("no stem is known for", die)
+            raise ParseError("no stem is known for " + die.tag)
         return stem
 
     def _get_die_name(self, die :DIE, gensym: bool = False) -> Optional[str]:
@@ -96,9 +98,9 @@ class TypeDG:
             for die in dies:
                 try:
                     self.track(die, shown, 0)
-                except:
-                    print("failed to explain", die)
-                    raise
+                except ParseError as e:
+                    print("// skip {} '{}':".format(self.fullpath, name),
+                          die.tag , str(e))
 
     def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
                  name: str = None):
@@ -155,7 +157,7 @@ class TypeDG:
                     + self._get_die_name(die, True)
                     + ((" " + name) if name else ""))
 
-        raise Exception("cannot generate decl. for ", die)
+        raise ParseError("cannot generate decl. for " + die.tag)
 
     def track(self, die: Optional[DIE], shown, depth: int,
               maybe_incomplete: bool = False):
@@ -181,23 +183,25 @@ class TypeDG:
                     continue
                 try:
                     self.track(self._get_type_die(child), shown, depth)
-                except:
-                    print("failed to track a formal-parameter", child)
-                    raise
+                except ParseError as e:
+                    raise ParseError("formal-parameter -> " + str(e)) from e
 
         elif die.tag == "DW_TAG_pointer_type":
             try:
                 self.track(self._get_type_die(die), shown, depth, True)
-            except:
-                print("failec to track a pointer", die)
-                raise
+            except ParseError as e:
+                raise ParseError("pointer -> " + str(e)) from e
 
         elif die.tag in self.TAGS_for_qualifiers:
             self.track(self._get_type_die(die), shown, depth)
 
         elif die.tag == "DW_TAG_typedef":
             dep = self._get_type_die(die)
-            self.track(dep, shown, depth)
+            try:
+                self.track(dep, shown, depth)
+            except:
+                print("failec to track a pointer", die)
+                raise
             print("\n/* @", self._get_attr__srcloc(die), "*/")
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
             
@@ -249,14 +253,14 @@ class TypeDG:
             print(",\n".join(members))
             print("};")
 
-        elif die.tag == "DW_TAG_class_type":
+        elif die.tag == "DW_TAG_class_typex":
             pass
 
         elif die.tag == "DW_TAG_reference_type":
             pass
 
         else:
-            raise Exception("unhandled DIE", die)
+            raise ParseError("incmpatible DIE: " + die.tag)
 
         if decl_only:
             if shown.get(die, None) != "defined":
