@@ -94,7 +94,11 @@ class TypeDG:
             if filter:
                 dies = filter(name, dies, shown)
             for die in dies:
-                self.track(die, shown, 0)
+                try:
+                    self.track(die, shown, 0)
+                except:
+                    print("failed to explain", die)
+                    raise
 
     def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
                  name: str = None):
@@ -175,10 +179,18 @@ class TypeDG:
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
-                self.track(self._get_type_die(child), shown, depth)
-            
+                try:
+                    self.track(self._get_type_die(child), shown, depth)
+                except:
+                    print("failed to track a formal-parameter", child)
+                    raise
+
         elif die.tag == "DW_TAG_pointer_type":
-            self.track(self._get_type_die(die), shown, depth, True)
+            try:
+                self.track(self._get_type_die(die), shown, depth, True)
+            except:
+                print("failec to track a pointer", die)
+                raise
 
         elif die.tag in self.TAGS_for_qualifiers:
             self.track(self._get_type_die(die), shown, depth)
@@ -204,7 +216,11 @@ class TypeDG:
                     mname = self._get_die_name(child);
                     mtype = self._get_type_die(child)
                     moff = child.attributes['DW_AT_data_member_location'].value
-                    self.track(mtype, shown, depth)
+                    try:
+                        self.track(mtype, shown, depth)
+                    except:
+                        print("failec to track a member", mtype)
+                        raise
                     members.append("\t" + self.gen_decl(mtype, shown, mname)
                                    + ";\t/* +0x{:x} */".format(moff));
                 print("\n/* @", self._get_attr__srcloc(die), "*/")
@@ -232,6 +248,12 @@ class TypeDG:
             print(self.gen_decl(die, shown, None) + " {")
             print(",\n".join(members))
             print("};")
+
+        elif die.tag == "DW_TAG_class_type":
+            pass
+
+        elif die.tag == "DW_TAG_reference_type":
+            pass
 
         else:
             raise Exception("unhandled DIE", die)
