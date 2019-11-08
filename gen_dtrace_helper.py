@@ -31,9 +31,8 @@ class TypeDG:
         self.fullpath = top.get_full_path()
 
         # attr['DW_AT_decl_file'] -> name
-        self.filedesc = dict( (le.dir_index, le.name.decode(ENCODING))
-                              for le in line_program['file_entry'])
-
+        self.filedesc = dict( (li, le.name.decode(ENCODING))
+                              for (li, le) in enumerate(line_program['file_entry']))
         named_types = {}
         def walk(die, names, depth: int = 0):
             if die.tag in self.TAGS_for_types:
@@ -57,11 +56,9 @@ class TypeDG:
     def _get_attr__srcloc(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
-            dir_index = loc_file.value
-            if 0 in self.filedesc:
-                dir_index -= 1 # DWARF >= v5
-            srcfile = self.filedesc.get(dir_index,
-                                        "_nowhere{}_".format(dir_index))
+            fileno = loc_file.value - 1
+            srcfile = self.filedesc.get(fileno,
+                                        "_nowhere{}_".format(fileno))
         else:
             srcfile = "_nowhere_"
         loc_line = die.attributes.get('DW_AT_decl_line', None)
@@ -92,7 +89,7 @@ class TypeDG:
                                  Iterable[DIE]] = None,
                 shown: Dict[DIE, str] = None):
         if shown is None:
-            shown = {}
+            shown = {} # dedup locally
         for name, dies in self.named_types.items():
             if filter:
                 dies = filter(name, dies, shown)
@@ -120,10 +117,10 @@ class TypeDG:
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
-                fparams.append(self.gen_decl(self._get_type_die(child), shown, None))
+                fparams.append(self.gen_decl(self._get_type_die(child), shown))
             if not fparams:
-                fparams = [self.gen_decl(None, shown, None)] # (void)
-            return (self.gen_decl(self._get_type_die(die), shown, None)
+                fparams = [self.gen_decl(None, shown)] # (void)
+            return (self.gen_decl(self._get_type_die(die), shown)
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         elif die.tag == "DW_TAG_array_type":
@@ -134,20 +131,23 @@ class TypeDG:
                 if not "DW_AT_count" in child.attributes:
                     continue
                 count = "[{}]".format(child.attributes["DW_AT_count"].value)
-            return (self.gen_decl(self._get_type_die(die), shown, None)
+            return (self.gen_decl(self._get_type_die(die), shown)
                     + " " + name + count)
 
         elif self.TAGS_for_qualifiers.get(die.tag, None):
             if die.tag == "DW_TAG_restrict_type":
-                return (self.gen_decl(self._get_type_die(die), shown, name))
-            return (self.TAGS_for_qualifiers[die.tag] + " "
+                prefix = ""
+            else:
+                prefix = self.TAGS_for_qualifiers[die.tag] + " "
+            return (prefix
                     + self.gen_decl(self._get_type_die(die), shown, name))
 
         elif self.TAGS_for_types.get(die.tag, None):
             if die.tag == "DW_TAG_typedef":
-                return (self._get_die_name(die)
-                        + " " + (name if name else ""))
-            return (self._get_stem(die) + " "
+                prefix = ""
+            else:
+                prefix = self._get_stem(die) + " "
+            return (prefix
                     + self._get_die_name(die, True)
                     + ((" " + name) if name else ""))
 
@@ -208,7 +208,7 @@ class TypeDG:
                     members.append("\t" + self.gen_decl(mtype, shown, mname)
                                    + ";\t/* +0x{:x} */".format(moff));
                 print("\n/* @", self._get_attr__srcloc(die), "*/")
-                print(self.gen_decl(die, shown, None)
+                print(self.gen_decl(die, shown)
                       + " {"
                       + "\t/* size=0x{:x} */".format(die.attributes["DW_AT_byte_size"].value))
                 if members:
