@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import Optional, Dict, Set
+from typing import Optional, Dict, Set, Callable, Iterable
 
 import elftools.elf.elffile
 from elftools.dwarf.die import DIE
@@ -54,7 +54,7 @@ class TypeDG:
         else:
             return None
 
-    def _get_attr__srcloc(self, die :DIE) -> Optional[str]:
+    def _get_attr__srcloc(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
             dir_index = loc_file.value
@@ -87,15 +87,20 @@ class TypeDG:
         return None
 
 
-    def explain(self, filter = None):
-        shown = {}
+    def explain(self,
+                filter: Callable[[str, Iterable[DIE], Dict[DIE, str]],
+                                 Iterable[DIE]] = None,
+                shown: Dict[DIE, str] = None):
+        if shown is None:
+            shown = {}
         for name, dies in self.named_types.items():
             if filter:
                 dies = filter(name, dies, shown)
             for die in dies:
                 self.track(die, shown, 0)
 
-    def gen_decl(self, die: Optional[DIE], shown, name: str = None):
+    def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
+                 name: str = None):
         if die is None:
             if name is None:
                 return "void"
@@ -111,19 +116,17 @@ class TypeDG:
                                   "*" + (name if name else "")))
         
         elif die.tag == "DW_TAG_subroutine_type":
-            rettype = self._get_type_die(die)
             fparams = []
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
                 fparams.append(self.gen_decl(self._get_type_die(child), shown, None))
             if not fparams:
-                fparams = [self.gen_decl(None, shown, None)]
-            return (self.gen_decl(rettype, shown, None)
+                fparams = [self.gen_decl(None, shown, None)] # (void)
+            return (self.gen_decl(self._get_type_die(die), shown, None)
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         elif die.tag == "DW_TAG_array_type":
-            elemtype = self._get_type_die(die)
             count = "[]"
             for child in die.iter_children():
                 if child.tag != "DW_TAG_subrange_type":
@@ -131,13 +134,13 @@ class TypeDG:
                 if not "DW_AT_count" in child.attributes:
                     continue
                 count = "[{}]".format(child.attributes["DW_AT_count"].value)
-            return (self.gen_decl(elemtype, shown, None) + " " + name + count)
+            return (self.gen_decl(self._get_type_die(die), shown, None)
+                    + " " + name + count)
 
         elif self.TAGS_for_qualifiers.get(die.tag, None):
             if die.tag == "DW_TAG_restrict_type":
                 return (self.gen_decl(self._get_type_die(die), shown, name))
-            stem = self.TAGS_for_qualifiers[die.tag]
-            return (stem + " "
+            return (self.TAGS_for_qualifiers[die.tag] + " "
                     + self.gen_decl(self._get_type_die(die), shown, name))
 
         elif self.TAGS_for_types.get(die.tag, None):
@@ -156,10 +159,10 @@ class TypeDG:
         if die is None:
             return
 
-        cur = shown.get(die, None)
-        if cur == "defined":
+        is_known = shown.get(die, None)
+        if is_known == "defined":
             return
-        if cur == "decl_only" and maybe_incomplete:
+        if is_known == "declared" and maybe_incomplete:
             return
             
         decl_only = False
@@ -250,10 +253,11 @@ if __name__ == '__main__':
     with open(path, 'rb') as f:
         elf = elftools.elf.elffile.ELFFile(f)
         dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
+        shown = {}
         for CU in dwarf.iter_CUs():
             line_program = dwarf.line_program_for_CU(CU)
             dg = TypeDG(CU, line_program)
             def any(name: str, dies: Set[DIE], shown: dict):
                 for die in dies:
                     yield die
-            dg.explain(any)
+            dg.explain(any, shown)
