@@ -200,8 +200,8 @@ class TypeDG:
             try:
                 self.track(dep, shown, depth)
             except:
-                print("failec to track a pointer", die)
-                raise
+                print("failec to track a typedef", die)
+                raise ParseError("typedef -> " + str(e)) from e
             print("\n/* @", self._get_attr__srcloc(die), "*/")
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
             
