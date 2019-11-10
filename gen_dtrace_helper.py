@@ -212,6 +212,7 @@ class TypeDG:
             elif "DW_AT_declaration" in die.attributes:
                 return
             else:
+                shown[die] = "defined"
                 members = []
                 for child in die.iter_children():
                     if child.tag != "DW_TAG_member":
