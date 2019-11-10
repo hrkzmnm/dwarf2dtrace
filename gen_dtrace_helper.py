@@ -14,7 +14,7 @@ class TypeDG:
         "DW_TAG_array_type": None,
         "DW_TAG_enumeration_type": "enum",
         "DW_TAG_structure_type": "struct",
-        "DW_TAG_class_type": "struct", # interpret as a struct
+        "DW_TAG_class_type": "/*class*/struct", # interpret as a struct
         "DW_TAG_typedef": "typedef",
         "DW_TAG_union_type": "union",
         "DW_TAG_subprogram": None,
@@ -119,8 +119,12 @@ class TypeDG:
 
         elif die.tag == "DW_TAG_reference_type":
             return (self.gen_decl(self._get_type_die(die), shown,
-                                  (name if name else "")))
-        
+                                  "/*&*/" +(name if name else "")))
+
+        elif die.tag == "DW_TAG_rvalue_reference_type":
+            return (self.gen_decl(self._get_type_die(die), shown,
+                                  "/*&&*/" +(name if name else "")))
+
         elif die.tag == "DW_TAG_subroutine_type":
             fparams = []
             for child in die.iter_children():
@@ -260,6 +264,8 @@ class TypeDG:
 
 
         elif die.tag == "DW_TAG_reference_type":
+            pass
+        elif die.tag == "DW_TAG_rvalue_reference_type":
             pass
 
         else:
