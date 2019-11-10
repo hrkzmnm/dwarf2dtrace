@@ -116,6 +116,10 @@ class TypeDG:
         elif die.tag == "DW_TAG_pointer_type":
             return (self.gen_decl(self._get_type_die(die), shown,
                                   "*" + (name if name else "")))
+
+        elif die.tag == "DW_TAG_reference_type":
+            return (self.gen_decl(self._get_type_die(die), shown,
+                                  (name if name else "")))
         
         elif die.tag == "DW_TAG_subroutine_type":
             fparams = []
