@@ -14,6 +14,7 @@ class TypeDG:
         "DW_TAG_array_type": None,
         "DW_TAG_enumeration_type": "enum",
         "DW_TAG_structure_type": "struct",
+        "DW_TAG_class_type": "struct", # interpret as a struct
         "DW_TAG_typedef": "typedef",
         "DW_TAG_union_type": "union",
         "DW_TAG_subprogram": None,
@@ -206,6 +207,7 @@ class TypeDG:
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
             
         elif die.tag in ("DW_TAG_structure_type",
+                         "DW_TAG_class_type",
                          "DW_TAG_union_type"):
             if maybe_incomplete:
                 print(self.gen_decl(die, shown, None) + ";")
@@ -253,7 +255,6 @@ class TypeDG:
             print(",\n".join(members))
             print("};")
 
-        elif die.tag == "DW_TAG_class_typex":
             pass
 
         elif die.tag == "DW_TAG_reference_type":
