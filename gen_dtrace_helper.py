@@ -60,13 +60,12 @@ class TypeDG:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
             fileno = loc_file.value - 1
-            srcfile = self.filedesc.get(fileno,
-                                        "_nowhere{}_".format(fileno))
+            srcfile = self.filedesc.get(fileno, f"_nowhere{fileno}_")
         else:
             srcfile = "_nowhere_"
         loc_line = die.attributes.get('DW_AT_decl_line', None)
         if loc_line:
-            srcline = ":{}".format(loc_line.value)
+            srcline = f":{loc_line.value}"
         else:
             srcline = ""
         return (srcfile + srcline)
@@ -82,8 +81,7 @@ class TypeDG:
             return die.attributes["DW_AT_name"].value.decode(ENCODING)
         if gensym:
             stem = self._get_stem(die)
-            return ("anon_" + stem
-                    + "_{:x}_{:x}".format(self.cu_offset, die.offset))
+            return f"anon_{stem}_{self.cu_offset:x}_{die.offset:x}"
         return None
 
 
@@ -100,7 +98,7 @@ class TypeDG:
                 try:
                     self.track(die, shown, 0)
                 except ParseError as e:
-                    print("// skip {} '{}':".format(self.fullpath, name),
+                    print(f"// skipped {self.fullpath} '{name}':",
                           die.tag , str(e))
 
     def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
@@ -137,7 +135,7 @@ class TypeDG:
                     continue
                 if not "DW_AT_count" in child.attributes:
                     continue
-                count = "[{}]".format(child.attributes["DW_AT_count"].value)
+                count = f"[{child.attributes['DW_AT_count'].value}]"
             return (self.gen_decl(self._get_type_die(die), shown)
                     + " " + name + count)
 
@@ -201,7 +199,6 @@ class TypeDG:
             try:
                 self.track(dep, shown, depth)
             except:
-                print("failec to track a typedef", die)
                 raise ParseError("typedef -> " + str(e)) from e
             print("\n/* @", self._get_attr__srcloc(die), "*/")
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
@@ -221,18 +218,19 @@ class TypeDG:
                         continue
                     mname = self._get_die_name(child);
                     mtype = self._get_type_die(child)
+                    if not 'DW_AT_data_member_location' in child.attributes:
+                        continue
                     moff = child.attributes['DW_AT_data_member_location'].value
                     try:
                         self.track(mtype, shown, depth)
-                    except:
-                        print("failec to track a member", mtype)
-                        raise
-                    members.append("\t" + self.gen_decl(mtype, shown, mname)
-                                   + ";\t/* +0x{:x} */".format(moff));
+                    except ParseError as e:
+                        raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
+                    members.append(f"\t{self.gen_decl(mtype, shown, mname)};"
+                                   + f"\t/* +0x{moff:x} */");
                 print("\n/* @", self._get_attr__srcloc(die), "*/")
-                print(self.gen_decl(die, shown)
-                      + " {"
-                      + "\t/* size=0x{:x} */".format(die.attributes["DW_AT_byte_size"].value))
+                print(self.gen_decl(die, shown) + " {\t/* "
+                      + f"size=0x{die.attributes['DW_AT_byte_size'].value:x}"
+                      + " */")
                 if members:
                     for line in members:
                         print(line)
@@ -250,12 +248,11 @@ class TypeDG:
                 ctval = child.attributes["DW_AT_const_value"]
                 members.append( "\t"
                                 + self._get_die_name(child)
-                                + (" = {}".format(ctval.value) if ctval else ""))
+                                + (f" = {ctval.value}" if ctval else ""))
             print(self.gen_decl(die, shown, None) + " {")
             print(",\n".join(members))
             print("};")
 
-            pass
 
         elif die.tag == "DW_TAG_reference_type":
             pass
