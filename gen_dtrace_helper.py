@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from typing import Optional, Dict, Set, Callable, Iterable
+import re
 
 import elftools.elf.elffile
 from elftools.dwarf.die import DIE
@@ -24,6 +25,11 @@ class TypeDG:
         "DW_TAG_volatile_type": "volatile",
         "DW_TAG_restrict_type": "restrict",
     }
+    badchars = re.compile(".*[<> ,;:]")
+    def is_valid_name(self, name):
+        if self.badchars.match(name):
+            return False
+        return True
 
     def __init__(self,
                  CU: elftools.dwarf.compileunit.CompileUnit,
@@ -39,7 +45,10 @@ class TypeDG:
         named_types = {}
         def walk(die, names, depth: int = 0):
             if die.tag in self.TAGS_for_types:
-                given_name = self._get_die_name(die)
+                try:
+                    given_name = self._get_die_name(die)
+                except ParseError as e:
+                    return
                 if given_name:
                     names.setdefault(given_name, set()).add(die)
             yield ((die.offset - self.cu_offset), die)
@@ -78,7 +87,10 @@ class TypeDG:
 
     def _get_die_name(self, die :DIE, gensym: bool = False) -> Optional[str]:
         if 'DW_AT_name' in die.attributes:
-            return die.attributes["DW_AT_name"].value.decode(ENCODING)
+            name = die.attributes["DW_AT_name"].value.decode(ENCODING)
+            if self.is_valid_name(name):
+                return name
+            raise ParseError("non C name '{name}'")
         if gensym:
             stem = self._get_stem(die)
             return f"anon_{stem}_{self.cu_offset:x}_{die.offset:x}"
