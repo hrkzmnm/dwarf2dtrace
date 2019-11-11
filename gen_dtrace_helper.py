@@ -206,7 +206,7 @@ class TypeDG:
             dep = self._get_type_die(die)
             try:
                 self.track(dep, shown, depth)
-            except:
+            except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
             print("\n/* @", self._get_attr__srcloc(die), "*/")
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
@@ -225,12 +225,12 @@ class TypeDG:
                 for child in die.iter_children():
                     if child.tag != "DW_TAG_member":
                         continue
-                    mname = self._get_die_name(child);
                     mtype = self._get_type_die(child)
                     if not 'DW_AT_data_member_location' in child.attributes:
                         continue
                     moff = child.attributes['DW_AT_data_member_location'].value
                     try:
+                        mname = self._get_die_name(child)
                         self.track(mtype, shown, depth)
                     except ParseError as e:
                         raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
@@ -264,9 +264,18 @@ class TypeDG:
 
 
         elif die.tag == "DW_TAG_reference_type":
-            pass
+            dep = self._get_type_die(die)
+            try:
+                self.track(dep, shown, depth)
+            except:
+                raise ParseError("reference -> " + str(e)) from e
+
         elif die.tag == "DW_TAG_rvalue_reference_type":
-            pass
+            dep = self._get_type_die(die)
+            try:
+                self.track(dep, shown, depth)
+            except:
+                raise ParseError("rvalue -> " + str(e)) from e
 
         else:
             raise ParseError("incmpatible DIE: " + die.tag)
