@@ -25,8 +25,8 @@ class TypeDG:
         "DW_TAG_volatile_type": "volatile",
         "DW_TAG_restrict_type": "restrict",
     }
-    badchars = re.compile(".*[<> ,;:]")
-    def is_valid_name(self, name):
+    badchars = re.compile(".*[^A-Za-z0-9_ ]")
+    def is_valid_name(self, name: str):
         if self.badchars.match(name):
             return False
         return True
@@ -48,6 +48,7 @@ class TypeDG:
                 try:
                     given_name = self._get_die_name(die)
                 except ParseError as e:
+                    print(f"/* skipped {self._get_stem(die)} at {self.src_location(die)}: {str(e)} */")
                     return
                 if given_name:
                     names.setdefault(given_name, set()).add(die)
@@ -57,7 +58,7 @@ class TypeDG:
 
         self.offset_to_die = dict(walk(top, named_types))
         self.named_types = named_types
-        
+
     def _get_type_die(self, die :DIE) -> Optional[DIE]:
         if 'DW_AT_type' in die.attributes:
             value = die.attributes["DW_AT_type"].value
@@ -65,7 +66,7 @@ class TypeDG:
         else:
             return None
 
-    def _get_attr__srcloc(self, die :DIE) -> str:
+    def src_location(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
             fileno = loc_file.value - 1
@@ -79,7 +80,7 @@ class TypeDG:
             srcline = ""
         return (srcfile + srcline)
 
-    def _get_stem(self, die):
+    def _get_stem(self, die: DIE) -> str:
         stem = self.TAGS_for_types.get(die.tag, None)
         if stem is None:
             raise ParseError("no stem is known for " + die.tag)
@@ -90,7 +91,7 @@ class TypeDG:
             name = die.attributes["DW_AT_name"].value.decode(ENCODING)
             if self.is_valid_name(name):
                 return name
-            raise ParseError("non C name '{name}'")
+            raise ParseError(f"invalid C identifier '{name}'")
         if gensym:
             stem = self._get_stem(die)
             return f"anon_{stem}_{self.cu_offset:x}_{die.offset:x}"
@@ -110,11 +111,11 @@ class TypeDG:
                 try:
                     self.track(die, shown, 0)
                 except ParseError as e:
-                    print(f"// skipped {self.fullpath} '{name}':",
-                          die.tag , str(e))
+                    print(f"/* skipped {self._get_stem(die)} '{name}'"
+                          + f" at {self.src_location(die)}: {str(e)} */")
 
     def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
-                 name: str = None):
+                 name: str = None) -> str:
         if die is None:
             if name is None:
                 return "void"
@@ -220,7 +221,7 @@ class TypeDG:
                 self.track(dep, shown, depth)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
-            print("\n/* @", self._get_attr__srcloc(die), "*/")
+            print("\n/* @", self.src_location(die), "*/")
             print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
             
         elif die.tag in ("DW_TAG_structure_type",
@@ -248,7 +249,7 @@ class TypeDG:
                         raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
                     members.append(f"\t{self.gen_decl(mtype, shown, mname)};"
                                    + f"\t/* +0x{moff:x} */");
-                print("\n/* @", self._get_attr__srcloc(die), "*/")
+                print("\n/* @", self.src_location(die), "*/")
                 print(self.gen_decl(die, shown) + " {\t/* "
                       + f"size=0x{die.attributes['DW_AT_byte_size'].value:x}"
                       + " */")
