@@ -5,17 +5,28 @@ import re
 
 import elftools.elf.elffile
 from elftools.dwarf.die import DIE
+from elftools.dwarf import constants
 
 ENCODING = 'utf-8'
 class ParseError(Exception):
     pass
 
 class TypeDG:
+    LANGUAGES = {
+        constants.DW_LANG_C,
+        constants.DW_LANG_C89,
+        constants.DW_LANG_C99,
+        constants.DW_LANG_C11 if 'DW_LANG_C11' in dir(constants) else 0x1d,
+        # constants.DW_LANG_C_plus_plus,
+        # constants.DW_LANG_C_plus_plus_03,
+        # constants.DW_LANG_C_plus_plus_11,
+        # constants.DW_LANG_C_plus_plus_14,
+    }
     TAGS_for_types = {
         "DW_TAG_array_type": None,
         "DW_TAG_enumeration_type": "enum",
         "DW_TAG_structure_type": "struct",
-        "DW_TAG_class_type": "/*class*/struct", # interpret as a struct
+        "DW_TAG_class_type": "/*<class>*/struct", # interpret as a struct
         "DW_TAG_typedef": "typedef",
         "DW_TAG_union_type": "union",
         "DW_TAG_subprogram": None,
@@ -24,6 +35,7 @@ class TypeDG:
         "DW_TAG_const_type": "const",
         "DW_TAG_volatile_type": "volatile",
         "DW_TAG_restrict_type": "restrict",
+        "DW_TAG_atomic_type": "_Atomic", # C11
     }
     badchars = re.compile(".*[^A-Za-z0-9_ ]")
     def is_valid_name(self, name: str):
@@ -35,6 +47,10 @@ class TypeDG:
                  CU: elftools.dwarf.compileunit.CompileUnit,
                  line_program: elftools.dwarf.lineprogram.LineProgram):
         top = CU.get_top_DIE()
+
+        if not top.attributes['DW_AT_language'].value in self.LANGUAGES:
+            self.named_types = {}
+            return
 
         self.cu_offset = CU.cu_offset
         self.fullpath = top.get_full_path()
@@ -48,7 +64,7 @@ class TypeDG:
                 try:
                     given_name = self._get_die_name(die)
                 except ParseError as e:
-                    print(f"/* skipped {self._get_stem(die)} at {self.src_location(die)}: {str(e)} */")
+                    print(f"/* skipped {die.tag} at {self.src_location(die)}: {str(e)} */")
                     return
                 if given_name:
                     names.setdefault(given_name, set()).add(die)
@@ -111,7 +127,7 @@ class TypeDG:
                 try:
                     self.track(die, shown, 0)
                 except ParseError as e:
-                    print(f"/* skipped {self._get_stem(die)} '{name}'"
+                    print(f"/* skipped {die.tag} '{name}'"
                           + f" at {self.src_location(die)}: {str(e)} */")
 
     def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
@@ -132,11 +148,11 @@ class TypeDG:
 
         elif die.tag == "DW_TAG_reference_type":
             return (self.gen_decl(self._get_type_die(die), shown,
-                                  "/*&*/" +(name if name else "")))
+                                  "/*<&>*/" +(name if name else "")))
 
         elif die.tag == "DW_TAG_rvalue_reference_type":
             return (self.gen_decl(self._get_type_die(die), shown,
-                                  "/*&&*/" +(name if name else "")))
+                                  "/*<&&>*/" +(name if name else "")))
 
         elif die.tag == "DW_TAG_subroutine_type":
             fparams = []
@@ -179,7 +195,9 @@ class TypeDG:
 
         raise ParseError("cannot generate decl. for " + die.tag)
 
-    def track(self, die: Optional[DIE], shown, depth: int,
+    def track(self, die: Optional[DIE],
+              shown,
+              depth: int,
               maybe_incomplete: bool = False):
         depth = depth + 1
         if die is None:
@@ -233,29 +251,36 @@ class TypeDG:
             elif "DW_AT_declaration" in die.attributes:
                 return
             else:
+                tag = self._get_die_name(die, True)
+                if tag in shown:
+                    return
+                shown[tag] = die
                 shown[die] = "defined"
+                size = die.attributes['DW_AT_byte_size'].value
                 members = []
                 for child in die.iter_children():
                     if child.tag != "DW_TAG_member":
                         continue
                     mtype = self._get_type_die(child)
-                    if not 'DW_AT_data_member_location' in child.attributes:
+                    mloc = child.attributes.get('DW_AT_data_member_location', None)
+                    if mloc is None:
                         continue
-                    moff = child.attributes['DW_AT_data_member_location'].value
+                    mname = "??"
                     try:
                         mname = self._get_die_name(child)
                         self.track(mtype, shown, depth)
                     except ParseError as e:
                         raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
                     members.append(f"\t{self.gen_decl(mtype, shown, mname)};"
-                                   + f"\t/* +0x{moff:x} */");
+                                   + f"\t/* +0x{mloc.value:x} */");
                 print("\n/* @", self.src_location(die), "*/")
-                print(self.gen_decl(die, shown) + " {\t/* "
-                      + f"size=0x{die.attributes['DW_AT_byte_size'].value:x}"
-                      + " */")
+                print(self.gen_decl(die, shown)
+                      + f"\t/* size=0x{size:x} */")
                 if members:
                     for line in members:
                         print(line)
+                elif size > 0:
+                    print(f"\tchar dummy[0x{size:x}];")
                 print("};")
 
         elif die.tag == "DW_TAG_array_type":
@@ -263,14 +288,19 @@ class TypeDG:
             self.track(elemtype, shown, depth)
 
         elif die.tag == "DW_TAG_enumeration_type":
+            tag = self._get_die_name(die, True)
+            if tag in shown:
+                return
+            shown[tag] = die
             members = []
             for child in die.iter_children():
                 if child.tag != "DW_TAG_enumerator":
                     continue
                 ctval = child.attributes["DW_AT_const_value"]
-                members.append( "\t"
-                                + self._get_die_name(child)
-                                + (f" = {ctval.value}" if ctval else ""))
+                if ctval:
+                    members.append(f"\t{self._get_die_name(child)} = {ctval.value}")
+                else:
+                    members.append(f"\t{self._get_die_name(child)}")
             print(self.gen_decl(die, shown, None) + " {")
             print(",\n".join(members))
             print("};")
@@ -314,7 +344,7 @@ if __name__ == '__main__':
         for CU in dwarf.iter_CUs():
             line_program = dwarf.line_program_for_CU(CU)
             dg = TypeDG(CU, line_program)
-            def any(name: str, dies: Set[DIE], shown: dict):
+            def filter(name: str, dies: Set[DIE], shown: dict):
                 for die in dies:
                     yield die
-            dg.explain(any, shown)
+            dg.explain(filter, shown)
