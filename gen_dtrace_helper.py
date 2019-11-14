@@ -275,7 +275,7 @@ class TypeDG:
                                    + f"\t/* +0x{mloc.value:x} */");
                 print("\n/* @", self.src_location(die), "*/")
                 print(self.gen_decl(die, shown)
-                      + f"\t/* size=0x{size:x} */")
+                      + "\t{" + f"/* size=0x{size:x} */")
                 if members:
                     for line in members:
                         print(line)
