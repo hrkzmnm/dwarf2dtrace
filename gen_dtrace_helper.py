@@ -267,6 +267,8 @@ class TypeDG:
                     if child.tag != "DW_TAG_member":
                         continue
                     mtype = self._get_type_die(child)
+                    if mtype is None:
+                        raise ParseError(f"failed to get {mname}'s type")
                     mloc = child.attributes.get('DW_AT_data_member_location', None)
                     if mloc is None:
                         continue
