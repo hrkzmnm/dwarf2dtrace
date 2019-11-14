@@ -68,7 +68,7 @@ class TypeDG:
                     return
                 if given_name:
                     names.setdefault(given_name, set()).add(die)
-            yield ((die.offset - self.cu_offset), die)
+            yield (die.offset, die)
             for child in die.iter_children():
                 yield from walk(child, names, depth+1)
 
@@ -76,11 +76,16 @@ class TypeDG:
         self.named_types = named_types
 
     def _get_type_die(self, die :DIE) -> Optional[DIE]:
-        if 'DW_AT_type' in die.attributes:
-            value = die.attributes["DW_AT_type"].value
-            return self.offset_to_die.get(value, None)
-        else:
+        at_type = die.attributes.get('DW_AT_type', None)
+        if at_type is None:
             return None
+        if at_type.form == "DW_FORM_ref_addr":
+            # global offset (needs relocation?)
+            value = die.attributes["DW_AT_type"].value 
+        else:
+            # for _ref[1248] or _ref_udata, CU-local offset
+            value = die.attributes["DW_AT_type"].value + self.cu_offset
+        return self.offset_to_die.get(value, None)
 
     def src_location(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
