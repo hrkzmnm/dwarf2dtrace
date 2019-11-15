@@ -54,20 +54,21 @@ class TypeDG:
 
         known_tags = {}
         def walk(die, depth: int = 0):
+            given_name = None
             if die.tag in self.TAGS_for_types:
                 try:
                     given_name = self._get_die_name(die)
                 except ParseError as e:
                     print(f"/* skipped {die.tag} at {self.src_location(die)}: {str(e)} */")
                     return
-                if given_name:
-                    if given_name in self.known_tags:
-                        for known in self.known_tags[given_name]:
-                            if known.tag == die.tag:
-                                return # todo: rename?
-                        self.known_tags[given_name].add(die)
-                    else:
-                        self.known_tags[given_name] = {die}
+            if given_name:
+                if given_name in self.known_tags:
+                    for known in self.known_tags[given_name]:
+                        if known.tag == die.tag:
+                            return # todo: rename?
+                    self.known_tags[given_name].add(die)
+                else:
+                    self.known_tags[given_name] = {die}
             self.offset_to_die[die.offset] = die
             for child in die.iter_children():
                 walk(child, depth+1)
@@ -104,11 +105,11 @@ class TypeDG:
             return f"{srcfile}:{loc_line.value}"
         return srcfile
 
-    def _get_stem(self, die: DIE) -> str:
-        stem = self.TAGS_for_types.get(die.tag, None)
-        if stem is None:
-            raise ParseError("no stem is known for " + die.tag)
-        return stem
+    def get_keyword(self, die: DIE) -> str:
+        keyword = self.TAGS_for_types.get(die.tag, None)
+        if keyword is None:
+            raise ParseError("no keyword is known for " + die.tag)
+        return keyword
 
     def _get_die_name(self, die :DIE, gensym: bool = False) -> Optional[str]:
         if 'DW_AT_name' in die.attributes:
@@ -117,8 +118,8 @@ class TypeDG:
                 return name
             raise ParseError(f"invalid C identifier '{name}'")
         if gensym:
-            stem = self._get_stem(die)
-            return f"anon_{stem}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
+            keyword = self.get_keyword(die)
+            return f"anon_{keyword}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
         return None
 
 
@@ -196,7 +197,7 @@ class TypeDG:
             if die.tag == "DW_TAG_typedef":
                 prefix = ""
             else:
-                prefix = self._get_stem(die) + " "
+                prefix = self.get_keyword(die) + " "
             return (prefix
                     + self._get_die_name(die, True)
                     + ((" " + name) if name else ""))
@@ -204,13 +205,12 @@ class TypeDG:
         raise ParseError("cannot generate decl. for " + die.tag)
 
     def track(self, die: Optional[DIE],
-              shown,
+              shown: Dict[DIE, str],
               depth: int,
               maybe_incomplete: bool = False):
-        depth = depth + 1
         if die is None:
             return
-
+        depth = depth + 1
         is_known = shown.get(die, None)
         if is_known == "defined":
             return
@@ -263,7 +263,7 @@ class TypeDG:
                 if tag in shown:
                     return
                 shown[tag] = die
-                shown[die] = "defined"
+                shown[die] = "defined" # pretend to know itself
                 size = die.attributes['DW_AT_byte_size'].value
                 members = []
                 for child in die.iter_children():
