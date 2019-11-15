@@ -43,23 +43,17 @@ class TypeDG:
             return False
         return True
 
-    def __init__(self,
-                 CU: elftools.dwarf.compileunit.CompileUnit,
-                 line_program: elftools.dwarf.lineprogram.LineProgram):
-        top = CU.get_top_DIE()
+    def __init__(self):
+        self.known_tags = {}
+        self.offset_to_die = {}
 
+    def parse_cu(self, CU: elftools.dwarf.compileunit.CompileUnit):
+        top = CU.get_top_DIE()
         if not top.attributes['DW_AT_language'].value in self.LANGUAGES:
-            self.named_types = {}
             return
 
-        self.cu_offset = CU.cu_offset
-        self.fullpath = top.get_full_path()
-
-        # attr['DW_AT_decl_file'] -> name
-        self.filedesc = dict( (li, le.name.decode(ENCODING))
-                              for (li, le) in enumerate(line_program['file_entry']))
-        named_types = {}
-        def walk(die, names, depth: int = 0):
+        known_tags = {}
+        def walk(die, depth: int = 0):
             if die.tag in self.TAGS_for_types:
                 try:
                     given_name = self._get_die_name(die)
@@ -67,13 +61,17 @@ class TypeDG:
                     print(f"/* skipped {die.tag} at {self.src_location(die)}: {str(e)} */")
                     return
                 if given_name:
-                    names.setdefault(given_name, set()).add(die)
-            yield (die.offset, die)
+                    if given_name in self.known_tags:
+                        for known in self.known_tags[given_name]:
+                            if known.tag == die.tag:
+                                return # todo: rename?
+                        self.known_tags[given_name].add(die)
+                    else:
+                        self.known_tags[given_name] = {die}
+            self.offset_to_die[die.offset] = die
             for child in die.iter_children():
-                yield from walk(child, names, depth+1)
-
-        self.offset_to_die = dict(walk(top, named_types))
-        self.named_types = named_types
+                walk(child, depth+1)
+        walk(top)
 
     def _get_type_die(self, die :DIE) -> Optional[DIE]:
         at_type = die.attributes.get('DW_AT_type', None)
@@ -82,24 +80,29 @@ class TypeDG:
         if at_type.form == "DW_FORM_ref_addr":
             # global offset (needs relocation?)
             value = die.attributes["DW_AT_type"].value 
+        elif at_type.form == "DW_FORM_ref_sig8":
+            # 8-byte type signature
+            raise ParseError("cannot handle {at_type.form} yet") 
+        elif at_type.form in {"DW_FORM_ref_sup4", "DW_FORM_ref_sup8"}:
+            # supplementary obj file
+            raise ParseError("cannot handle {at_type.form} yet")
         else:
             # for _ref[1248] or _ref_udata, CU-local offset
-            value = die.attributes["DW_AT_type"].value + self.cu_offset
+            value = die.attributes["DW_AT_type"].value + die.cu.cu_offset
         return self.offset_to_die.get(value, None)
 
     def src_location(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
-            fileno = loc_file.value - 1
-            srcfile = self.filedesc.get(fileno, f"_nowhere{fileno}_")
+            fileno = loc_file.value - 1 # DwarfV4
+            line_program = die.cu.dwarfinfo.line_program_for_CU(die.cu)
+            srcfile = line_program['file_entry'][fileno].name.decode(ENCODING)
         else:
             srcfile = "_nowhere_"
         loc_line = die.attributes.get('DW_AT_decl_line', None)
         if loc_line:
-            srcline = f":{loc_line.value}"
-        else:
-            srcline = ""
-        return (srcfile + srcline)
+            return f"{srcfile}:{loc_line.value}"
+        return srcfile
 
     def _get_stem(self, die: DIE) -> str:
         stem = self.TAGS_for_types.get(die.tag, None)
@@ -115,7 +118,7 @@ class TypeDG:
             raise ParseError(f"invalid C identifier '{name}'")
         if gensym:
             stem = self._get_stem(die)
-            return f"anon_{stem}_{self.cu_offset:x}_{die.offset:x}"
+            return f"anon_{stem}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
         return None
 
 
@@ -125,7 +128,7 @@ class TypeDG:
                 shown: Dict[DIE, str] = None):
         if shown is None:
             shown = {} # dedup locally
-        for name, dies in self.named_types.items():
+        for name, dies in self.known_tags.items():
             if filter:
                 dies = filter(name, dies, shown)
             for die in dies:
@@ -338,20 +341,15 @@ class TypeDG:
 
 if __name__ == '__main__':
     import sys
-    sys.setrecursionlimit(100)
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-    else:
-        path = "./a.out"
-
+    # sys.setrecursionlimit(100)
+    path = sys.argv[1]
     with open(path, 'rb') as f:
-        elf = elftools.elf.elffile.ELFFile(f)
-        dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
-        shown = {}
-        for CU in dwarf.iter_CUs():
-            line_program = dwarf.line_program_for_CU(CU)
-            dg = TypeDG(CU, line_program)
-            def filter(name: str, dies: Set[DIE], shown: dict):
-                for die in dies:
-                    yield die
-            dg.explain(filter, shown)
+        efile = elftools.elf.elffile.ELFFile(f)
+        dwinfo = efile.get_dwarf_info(relocate_dwarf_sections=False)
+        dg = TypeDG()
+        for CU in dwinfo.iter_CUs():
+            dg.parse_cu(CU)
+        def filter(name: str, dies: Set[DIE], shown: dict):
+            for die in dies:
+                yield die
+        dg.explain(filter, {})
