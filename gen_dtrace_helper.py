@@ -55,14 +55,13 @@ class TypeDG:
         known_tags = {}
         def walk(die, depth: int = 0):
             given_name = None
-            if die.tag in self.TAGS_for_types:
+            if (die.tag in self.TAGS_for_types and
+                not ("DW_AT_declaration" in die.attributes)):
                 try:
                     given_name = self._get_die_name(die)
                 except ParseError as e:
                     print(f"/* skipped {die.tag} at {self.src_location(die)}: {str(e)} */")
-                    return
-            if given_name:
-                if given_name in self.known_tags:
+                if given_name and (given_name in self.known_tags):
                     for known in self.known_tags[given_name]:
                         if known.tag == die.tag:
                             return # todo: rename?
@@ -73,7 +72,6 @@ class TypeDG:
             for child in die.iter_children():
                 walk(child, depth+1)
         walk(top)
-
     def _get_type_die(self, die :DIE) -> Optional[DIE]:
         at_type = die.attributes.get('DW_AT_type', None)
         if at_type is None:
@@ -93,7 +91,7 @@ class TypeDG:
         try:
             return self.offset_to_die[value]
         except KeyError as e:
-            raise ParseError(f"no DIE at offset={value:x}") from e
+            raise ParseError(f"no DIE at offset=0x{value:x}") from e
 
     def src_location(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
