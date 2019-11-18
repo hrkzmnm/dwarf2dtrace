@@ -90,7 +90,10 @@ class TypeDG:
         else:
             # for _ref[1248] or _ref_udata, CU-local offset
             value = die.attributes["DW_AT_type"].value + die.cu.cu_offset
-        return self.offset_to_die.get(value, None)
+        try:
+            return self.offset_to_die[value]
+        except KeyError as e:
+            raise ParseError(f"no DIE at offset={value:x}") from e
 
     def src_location(self, die :DIE) -> str:
         loc_file = die.attributes.get('DW_AT_decl_file', None)
