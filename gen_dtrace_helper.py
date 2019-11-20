@@ -73,7 +73,7 @@ class TypeDG:
                 if self.VERBOSE > 0:
                     print(f"/* got {symolname}"
                           f" GOFF=0x{die.offset:x}"
-                          f" at {self.src_location(die)}")
+                          f" at {self.src_location(die)} */")
             else:
                 if self.VERBOSE > 0:
                     print(f"/* duplicated {symolname}"
@@ -292,15 +292,24 @@ class TypeDG:
                     mtype = self._get_type_die(child)
                     if mtype is None:
                         raise ParseError(f"failed to get {mname}'s type")
+
                     mloc = child.attributes.get('DW_AT_data_member_location', None)
                     if mloc is None:
                         continue
-                    mname = "??"
+
                     try:
                         mname = self._get_die_name(child)
+                    except ParseError as e:
+                        raise ParseError(f"failed to get name of a member"
+                                         f" {mtype.tag} " + str(e))
+                    if mname is None:
+                        mname = f"unnamed__at_0x{mloc.value:x}"
+
+                    try:
                         self.track(mtype, shown, depth)
                     except ParseError as e:
-                        raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
+                        raise ParseError(f"failed to track a member"
+                                         f" {mtype.tag} '{mname}' " + str(e))
                     members.append(f"\t{self.gen_decl(mtype, mname)};"
                                    + f"\t/* +0x{mloc.value:x} */");
                 print("\n/* @", self.src_location(die), "*/")
