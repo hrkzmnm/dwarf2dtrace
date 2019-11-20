@@ -44,34 +44,43 @@ class TypeDG:
         return True
 
     def __init__(self):
-        self.known_tags = {}
+        self.symbols = {}
         self.offset_to_die = {}
 
     def parse_cu(self, CU: elftools.dwarf.compileunit.CompileUnit):
         top = CU.get_top_DIE()
         if not top.attributes['DW_AT_language'].value in self.LANGUAGES:
             return
-
-        known_tags = {}
-        def walk(die, depth: int = 0):
-            given_name = None
-            if (die.tag in self.TAGS_for_types and
-                not ("DW_AT_declaration" in die.attributes)):
-                try:
-                    given_name = self._get_die_name(die)
-                except ParseError as e:
-                    print(f"/* skipped {die.tag} at {self.src_location(die)}: {str(e)} */")
-                if given_name and (given_name in self.known_tags):
-                    for known in self.known_tags[given_name]:
-                        if known.tag == die.tag:
-                            return # todo: rename?
-                    self.known_tags[given_name].add(die)
-                else:
-                    self.known_tags[given_name] = {die}
+        print(f"\n/** CU 0x{CU.cu_offset:x} '{top.get_full_path()}' **/")
+        def register_die(die: DIE):
             self.offset_to_die[die.offset] = die
+            symolname = None
+            if not (die.tag in self.TAGS_for_types):
+                return
+            if "DW_AT_declaration" in die.attributes:
+                return
+            try:
+                symolname = self._get_die_name(die)
+            except ParseError as e:
+                print(f"/* ignored {die.tag} at {self.src_location(die)}: {str(e)} */")
+            if symolname is None:
+                return
+            try:
+                known = self.symbols[symolname]
+            except KeyError as e: 
+                self.symbols[symolname] = die
+                print(f"/* got {symolname} "
+                      f"for DIE GOFF=0x{die.offset:x} at {self.src_location(die)}")
+            else:
+                print(f"/* duplicated {symolname} at {self.src_location(die)},"
+                      f" which is {self.src_location(known)}  */")
+            
+        def walk(die, depth: int = 0):
+            register_die(die)
             for child in die.iter_children():
                 walk(child, depth+1)
         walk(top)
+
     def _get_type_die(self, die :DIE) -> Optional[DIE]:
         at_type = die.attributes.get('DW_AT_type', None)
         if at_type is None:
@@ -125,23 +134,18 @@ class TypeDG:
 
 
     def explain(self,
-                filter: Callable[[str, Iterable[DIE], Dict[DIE, str]],
-                                 Iterable[DIE]] = None,
-                shown: Dict[DIE, str] = None):
-        if shown is None:
-            shown = {} # dedup locally
-        for name, dies in self.known_tags.items():
-            if filter:
-                dies = filter(name, dies, shown)
-            for die in dies:
-                try:
-                    self.track(die, shown, 0)
-                except ParseError as e:
-                    print(f"/* skipped {die.tag} '{name}'"
-                          + f" at {self.src_location(die)}: {str(e)} */")
+                checker: Callable[[DIE], bool] = None):
+        shown = {}
+        for name, die in self.symbols.items():
+            if not checker(die):
+                continue
+            try:
+                self.track(die, shown, 0)
+            except ParseError as e:
+                print(f"/* skipped {die.tag} '{name}'"
+                      f" at {self.src_location(die)}: {str(e)} */")
 
-    def gen_decl(self, die: Optional[DIE], shown: Dict[DIE, str],
-                 name: str = None) -> str:
+    def gen_decl(self, die: Optional[DIE], name: str = None) -> str:
         if die is None:
             if name is None:
                 return "void"
@@ -153,15 +157,15 @@ class TypeDG:
             return (self._get_die_name(die))
 
         elif die.tag == "DW_TAG_pointer_type":
-            return (self.gen_decl(self._get_type_die(die), shown,
+            return (self.gen_decl(self._get_type_die(die),
                                   "*" + (name if name else "")))
 
         elif die.tag == "DW_TAG_reference_type":
-            return (self.gen_decl(self._get_type_die(die), shown,
+            return (self.gen_decl(self._get_type_die(die),
                                   "/*<&>*/" +(name if name else "")))
 
         elif die.tag == "DW_TAG_rvalue_reference_type":
-            return (self.gen_decl(self._get_type_die(die), shown,
+            return (self.gen_decl(self._get_type_die(die),
                                   "/*<&&>*/" +(name if name else "")))
 
         elif die.tag == "DW_TAG_subroutine_type":
@@ -169,10 +173,10 @@ class TypeDG:
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
-                fparams.append(self.gen_decl(self._get_type_die(child), shown))
+                fparams.append(self.gen_decl(self._get_type_die(child)))
             if not fparams:
-                fparams = [self.gen_decl(None, shown)] # (void)
-            return (self.gen_decl(self._get_type_die(die), shown)
+                fparams = [self.gen_decl(None)] # (void)
+            return (self.gen_decl(self._get_type_die(die))
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         elif die.tag == "DW_TAG_array_type":
@@ -183,7 +187,7 @@ class TypeDG:
                 if not "DW_AT_count" in child.attributes:
                     continue
                 count = f"[{child.attributes['DW_AT_count'].value}]"
-            return (self.gen_decl(self._get_type_die(die), shown)
+            return (self.gen_decl(self._get_type_die(die))
                     + " " + name + count)
 
         elif self.TAGS_for_qualifiers.get(die.tag, None):
@@ -192,7 +196,7 @@ class TypeDG:
             else:
                 prefix = self.TAGS_for_qualifiers[die.tag] + " "
             return (prefix
-                    + self.gen_decl(self._get_type_die(die), shown, name))
+                    + self.gen_decl(self._get_type_die(die), name))
 
         elif self.TAGS_for_types.get(die.tag, None):
             if die.tag == "DW_TAG_typedef":
@@ -220,9 +224,9 @@ class TypeDG:
             
         decl_only = False
         if die.tag == "DW_TAG_base_type":
-            pass
+            return
 
-        elif die.tag in ("DW_TAG_subprogram",
+        if die.tag in ("DW_TAG_subprogram",
                          "DW_TAG_subroutine_type"):
             self.track(self._get_type_die(die), shown, depth)
             for child in die.iter_children():
@@ -232,30 +236,38 @@ class TypeDG:
                     self.track(self._get_type_die(child), shown, depth)
                 except ParseError as e:
                     raise ParseError("formal-parameter -> " + str(e)) from e
+            return
 
-        elif die.tag == "DW_TAG_pointer_type":
+        if die.tag == "DW_TAG_pointer_type":
             try:
                 self.track(self._get_type_die(die), shown, depth, True)
             except ParseError as e:
                 raise ParseError("pointer -> " + str(e)) from e
+            return
 
-        elif die.tag in self.TAGS_for_qualifiers:
-            self.track(self._get_type_die(die), shown, depth)
+        if die.tag in self.TAGS_for_qualifiers:
+            try:
+                self.track(self._get_type_die(die), shown, depth)
+            except ParseError as e:
+                raise ParseError("qual -> " + str(e)) from e
+            return
 
-        elif die.tag == "DW_TAG_typedef":
+        if die.tag == "DW_TAG_typedef":
             dep = self._get_type_die(die)
             try:
                 self.track(dep, shown, depth)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
-            print("\n/* @", self.src_location(die), "*/")
-            print("typedef " + self.gen_decl(dep, shown, self._get_die_name(die)) + ";")
-            
-        elif die.tag in ("DW_TAG_structure_type",
+            defined_name = self._get_die_name(die)
+            print(f"\n/* @ {self.src_location(die)}, define '{defined_name}' */")
+            print(f"typedef {self.gen_decl(dep, defined_name)};")
+            return
+
+        if die.tag in ("DW_TAG_structure_type",
                          "DW_TAG_class_type",
                          "DW_TAG_union_type"):
             if maybe_incomplete:
-                print(self.gen_decl(die, shown, None) + ";")
+                print(self.gen_decl(die) + ";")
                 decl_only = True
             elif "DW_AT_declaration" in die.attributes:
                 return
@@ -282,10 +294,10 @@ class TypeDG:
                         self.track(mtype, shown, depth)
                     except ParseError as e:
                         raise ParseError(f"failed to track a member {mtype.tag} {mname} " + str(e))
-                    members.append(f"\t{self.gen_decl(mtype, shown, mname)};"
+                    members.append(f"\t{self.gen_decl(mtype, mname)};"
                                    + f"\t/* +0x{mloc.value:x} */");
                 print("\n/* @", self.src_location(die), "*/")
-                print(self.gen_decl(die, shown)
+                print(self.gen_decl(die)
                       + "\t{" + f"/* size=0x{size:x} */")
                 if members:
                     for line in members:
@@ -312,7 +324,7 @@ class TypeDG:
                     members.append(f"\t{self._get_die_name(child)} = {ctval.value}")
                 else:
                     members.append(f"\t{self._get_die_name(child)}")
-            print(self.gen_decl(die, shown, None) + " {")
+            print(self.gen_decl(die) + " {")
             print(",\n".join(members))
             print("};")
 
@@ -350,7 +362,6 @@ if __name__ == '__main__':
         dg = TypeDG()
         for CU in dwinfo.iter_CUs():
             dg.parse_cu(CU)
-        def filter(name: str, dies: Set[DIE], shown: dict):
-            for die in dies:
-                yield die
-        dg.explain(filter, {})
+        def everything(die: DIE):
+            return True
+        dg.explain(everything)
