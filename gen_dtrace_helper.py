@@ -38,6 +38,7 @@ class TypeDG:
         "DW_TAG_atomic_type": "_Atomic", # C11
     }
     badchars = re.compile(".*[^A-Za-z0-9_ ]")
+    VERBOSE = 1
     def is_valid_name(self, name: str):
         if self.badchars.match(name):
             return False
@@ -69,11 +70,16 @@ class TypeDG:
                 known = self.symbols[symolname]
             except KeyError as e: 
                 self.symbols[symolname] = die
-                print(f"/* got {symolname} "
-                      f"for DIE GOFF=0x{die.offset:x} at {self.src_location(die)}")
+                if self.VERBOSE > 0:
+                    print(f"/* got {symolname}"
+                          f" GOFF=0x{die.offset:x}"
+                          f" at {self.src_location(die)}")
             else:
-                print(f"/* duplicated {symolname} at {self.src_location(die)},"
-                      f" which is {self.src_location(known)}  */")
+                if self.VERBOSE > 0:
+                    print(f"/* duplicated {symolname}"
+                          f" GOFF=0x{die.offset:x} at {self.src_location(die)},"
+                          f" which is known as"
+                          f" GOFF=0x{known.offset:x} at {self.src_location(known)} */")
             
         def walk(die, depth: int = 0):
             register_die(die)
@@ -126,7 +132,7 @@ class TypeDG:
             name = die.attributes["DW_AT_name"].value.decode(ENCODING)
             if self.is_valid_name(name):
                 return name
-            raise ParseError(f"invalid C identifier '{name}'")
+            raise ParseError(f"'{name}' may not be a valid identifier")
         if gensym:
             keyword = self.get_keyword(die)
             return f"anon_{keyword}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
@@ -259,6 +265,7 @@ class TypeDG:
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
             defined_name = self._get_die_name(die)
+            
             print(f"\n/* @ {self.src_location(die)}, define '{defined_name}' */")
             print(f"typedef {self.gen_decl(dep, defined_name)};")
             return
