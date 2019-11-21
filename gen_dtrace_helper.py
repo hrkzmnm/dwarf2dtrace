@@ -303,7 +303,7 @@ class TypeDG:
                         raise ParseError(f"failed to get name of a member"
                                          f" {mtype.tag} " + str(e))
                     if mname is None:
-                        mname = f"unnamed__at_0x{mloc.value:x}"
+                        mname = f"unnamed{len(members)}__goff_0x{mloc.value:x}"
 
                     try:
                         self.track(mtype, shown, depth)
