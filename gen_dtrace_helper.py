@@ -52,7 +52,8 @@ class TypeDG:
         top = CU.get_top_DIE()
         if not top.attributes['DW_AT_language'].value in self.LANGUAGES:
             return
-        print(f"\n/** CU 0x{CU.cu_offset:x} '{top.get_full_path()}' **/")
+        if self.VERBOSE > 0:
+            print(f"\n/** CU 0x{CU.cu_offset:x} '{top.get_full_path()}' **/")
         def register_die(die: DIE):
             self.offset_to_die[die.offset] = die
             symolname = None
@@ -258,6 +259,29 @@ class TypeDG:
                 raise ParseError("qual -> " + str(e)) from e
             return
 
+        if die.tag == "DW_TAG_array_type":
+            elemtype = self._get_type_die(die)
+            self.track(elemtype, shown, depth)
+            return
+
+        if die.tag == "DW_TAG_reference_type":
+            dep = self._get_type_die(die)
+            try:
+                self.track(dep, shown, depth)
+            except:
+                raise ParseError("reference -> " + str(e)) from e
+            return
+
+        if die.tag == "DW_TAG_rvalue_reference_type":
+            dep = self._get_type_die(die)
+            try:
+                self.track(dep, shown, depth)
+            except:
+                raise ParseError("rvalue -> " + str(e)) from e
+            return
+
+
+        # tags that may trigger 'redefinition'
         if die.tag == "DW_TAG_typedef":
             dep = self._get_type_die(die)
             try:
@@ -322,11 +346,14 @@ class TypeDG:
                     print(f"\tchar dummy[0x{size:x}];")
                 print("};")
 
-        elif die.tag == "DW_TAG_array_type":
-            elemtype = self._get_type_die(die)
-            self.track(elemtype, shown, depth)
+            if decl_only:
+                if shown.get(die, None) != "defined":
+                    shown[die] = "declared"
+                else:
+                    shown[die] = "defined"
+            return
 
-        elif die.tag == "DW_TAG_enumeration_type":
+        if die.tag == "DW_TAG_enumeration_type":
             tag = self._get_die_name(die, True)
             if tag in shown:
                 return
@@ -343,30 +370,11 @@ class TypeDG:
             print(self.gen_decl(die) + " {")
             print(",\n".join(members))
             print("};")
-
-
-        elif die.tag == "DW_TAG_reference_type":
-            dep = self._get_type_die(die)
-            try:
-                self.track(dep, shown, depth)
-            except:
-                raise ParseError("reference -> " + str(e)) from e
-
-        elif die.tag == "DW_TAG_rvalue_reference_type":
-            dep = self._get_type_die(die)
-            try:
-                self.track(dep, shown, depth)
-            except:
-                raise ParseError("rvalue -> " + str(e)) from e
+            return
 
         else:
-            raise ParseError("incmpatible DIE: " + die.tag)
+            raise ParseError("incompatible DIE: " + die.tag)
 
-        if decl_only:
-            if shown.get(die, None) != "defined":
-                shown[die] = "declared"
-        else:
-            shown[die] = "defined"
 
 if __name__ == '__main__':
     import sys
