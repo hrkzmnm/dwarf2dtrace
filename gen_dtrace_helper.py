@@ -76,21 +76,21 @@ class TypeDG:
             name = die.attributes["DW_AT_name"].value.decode(ENCODING)
             if not self.is_valid_name(name):
                 name = None
-                nickname = name
-                keyword = self.TAGS_for_types.get(die.tag, None)
+        nickname = name
+        keyword = self.TAGS_for_types.get(die.tag, None)
         if keyword:
             nickname = f"anon_{keyword}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
-            loc_file = die.attributes.get('DW_AT_decl_file', None)
+        loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
             fileno = loc_file.value - 1 # DwarfV4
             line_program = die.cu.dwarfinfo.line_program_for_CU(die.cu)
             srcfile = line_program['file_entry'][fileno].name.decode(ENCODING)
         else:
             srcfile = "_nowhere_"
-            loc_line = die.attributes.get('DW_AT_decl_line', None)
-            byte_size = die.attributes.get('DW_AT_byte_size')
-            byte_size = byte_size.value if byte_size else -1
-            deps = None
+        loc_line = die.attributes.get('DW_AT_decl_line', None)
+        byte_size = die.attributes.get('DW_AT_byte_size')
+        byte_size = byte_size.value if byte_size else -1
+        deps = None
         if die.tag in ("DW_TAG_structure_type",
                        "DW_TAG_class_type",
                        "DW_TAG_union_type"):
@@ -103,7 +103,7 @@ class TypeDG:
         elif die.tag == "DW_TAG_enumeration_type":
             deps = [child.offset for child in die.iter_children()
                     if child.tag == "DW_TAG_enumerator"]
-            count = -1
+        count = -1
         if die.tag == "DW_TAG_array_type":
             for child in die.iter_children():
                 if child.tag != "DW_TAG_subrange_type":
@@ -181,13 +181,13 @@ class TypeDG:
                           f" which is known as"
                           f" GOFF=0x{known.offset:x} at {self.src_location(known)} */")
 
-    def walk(die, depth: int = 0):
+        def walk(die, depth: int = 0):
             register_die(die)
             for child in die.iter_children():
                 walk(child, depth+1)
-                walk(top)
+        walk(top)
 
-    def _get_type_die(self, node :Node) -> Optional[Node]:
+    def get_type_node(self, node :Node) -> Optional[Node]:
         value = node.type_goff
         if value == -1:
             return None
@@ -215,14 +215,14 @@ class TypeDG:
     def explain(self,
                 checker: Callable[[Node], bool] = None):
         shown = {}
-        for name, die in self.symbols.items():
-            if not checker(die):
+        for name, node in self.symbols.items():
+            if not checker(node):
                 continue
             try:
-                self.track(die, shown, 0)
+                self.track(node, shown, 0)
             except ParseError as e:
-                print(f"/* skipped {die.tag} '{name}'"
-                      f" at {self.src_location(die)}: {str(e)} */")
+                print(f"/* skipped {node.tag} '{name}'"
+                      f" at {self.src_location(node)}: {str(e)} */")
 
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
         if node is None:
@@ -236,32 +236,32 @@ class TypeDG:
             return (node.name)
 
         elif node.tag == "DW_TAG_pointer_type":
-            return (self.gen_decl(self._get_type_die(node),
+            return (self.gen_decl(self.get_type_node(node),
                                   "*" + (name if name else "")))
 
         elif node.tag == "DW_TAG_reference_type":
-            return (self.gen_decl(self._get_type_die(node),
+            return (self.gen_decl(self.get_type_node(node),
                                   "/*<&>*/" +(name if name else "")))
 
         elif node.tag == "DW_TAG_rvalue_reference_type":
-            return (self.gen_decl(self._get_type_die(node),
+            return (self.gen_decl(self.get_type_node(node),
                                   "/*<&&>*/" +(name if name else "")))
 
         elif node.tag == "DW_TAG_subroutine_type":
             fparams = []
             for child_goff in node.deps:
                 child = self.offset_to_node[child_goff]
-                fparams.append(self.gen_decl(self._get_type_die(child)))
+                fparams.append(self.gen_decl(self.get_type_node(child)))
             if not fparams:
                 fparams = [self.gen_decl(None)] # (void)
-            return (self.gen_decl(self._get_type_die(node))
+            return (self.gen_decl(self.get_type_node(node))
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         elif node.tag == "DW_TAG_array_type":
             count = "[]"
             if node.count >= 0: 
                 count = f"[{node.count}]"
-            return (self.gen_decl(self._get_type_die(node))
+            return (self.gen_decl(self.get_type_node(node))
                     + " " + name + count)
 
         elif self.TAGS_for_qualifiers.get(node.tag, None):
@@ -270,7 +270,7 @@ class TypeDG:
             else:
                 prefix = self.TAGS_for_qualifiers[node.tag] + " "
             return (prefix
-                    + self.gen_decl(self._get_type_die(node), name))
+                    + self.gen_decl(self.get_type_node(node), name))
 
         elif self.TAGS_for_types.get(node.tag, None):
             if node.tag == "DW_TAG_typedef":
@@ -303,38 +303,38 @@ class TypeDG:
 
         if node.tag in ("DW_TAG_subprogram",
                         "DW_TAG_subroutine_type"):
-            self.track(self._get_type_die(node), shown, depth)
+            self.track(self.get_type_node(node), shown, depth)
             for child_goff in node.deps:
                 child = self.offset_to_node[child_goff]
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
                 try:
-                    self.track(self._get_type_die(child), shown, depth)
+                    self.track(self.get_type_node(child), shown, depth)
                 except ParseError as e:
                     raise ParseError("formal-parameter -> " + str(e)) from e
             return
 
         if node.tag == "DW_TAG_pointer_type":
             try:
-                self.track(self._get_type_die(node), shown, depth, True)
+                self.track(self.get_type_node(node), shown, depth, True)
             except ParseError as e:
                 raise ParseError("pointer -> " + str(e)) from e
             return
 
         if node.tag in self.TAGS_for_qualifiers:
             try:
-                self.track(self._get_type_die(node), shown, depth)
+                self.track(self.get_type_node(node), shown, depth)
             except ParseError as e:
                 raise ParseError("qual -> " + str(e)) from e
             return
 
         if node.tag == "DW_TAG_array_type":
-            elemtype = self._get_type_die(node)
+            elemtype = self.get_type_node(node)
             self.track(elemtype, shown, depth)
             return
 
         if node.tag == "DW_TAG_reference_type":
-            dep = self._get_type_die(node)
+            dep = self.get_type_node(node)
             try:
                 self.track(dep, shown, depth)
             except:
@@ -342,7 +342,7 @@ class TypeDG:
             return
 
         if node.tag == "DW_TAG_rvalue_reference_type":
-            dep = self._get_type_die(node)
+            dep = self.get_type_node(node)
             try:
                 self.track(dep, shown, depth)
             except:
@@ -352,7 +352,7 @@ class TypeDG:
 
         # tags that may trigger 'redefinition'
         if node.tag == "DW_TAG_typedef":
-            dep = self._get_type_die(node)
+            dep = self.get_type_node(node)
             try:
                 self.track(dep, shown, depth)
             except ParseError as e:
@@ -366,56 +366,47 @@ class TypeDG:
         if node.tag in ("DW_TAG_structure_type",
                         "DW_TAG_class_type",
                         "DW_TAG_union_type"):
-            if maybe_incomplete:
-                print(self.gen_decl(node) + ";")
-                decl_only = True
-            elif node.is_decl:
+            if maybe_incomplete or node.is_decl:
+                if shown.get(node.nickname, None) is None:
+                    print(self.gen_decl(node) + ";")
+                    shown[node.nickname] = "declared"
                 return
-            else:
-                shown[node.nickname] = "defined" # pretend to know itself
-                members = []
-                for child_goff in node.deps:
-                    child = self.offset_to_node[child_goff]
-                    if child.tag != "DW_TAG_member":
-                        continue
-                    mtype = self._get_type_die(child)
-                    if mtype is None:
-                        raise ParseError(f"failed to get {mname}'s type")
+            shown[node.nickname] = "defined" # pretend to know itself
+            members = []
+            for child_goff in node.deps:
+                child = self.offset_to_node[child_goff]
+                mtype = self.get_type_node(child)
+                if mtype is None:
+                    raise ParseError(f"failed to get {mname}'s type")
 
-                    mloc = child.data_member_location
-                    if mloc is None:
-                        continue
+                mloc = child.data_member_location
+                if mloc is None:
+                    continue
 
-                    try:
-                        mname = self._get_die_name(child)
-                    except ParseError as e:
-                        raise ParseError(f"failed to get name of a member"
-                                         f" {mtype.tag} " + str(e))
-                    if mname is None:
-                        mname = f"unnamed{len(members)}__goff_0x{mloc:x}"
+                try:
+                    mname = self._get_die_name(child)
+                except ParseError as e:
+                    raise ParseError(f"failed to get name of a member"
+                                     f" {mtype.tag} " + str(e))
+                if mname is None:
+                    mname = f"unnamed{len(members)}__goff_0x{mloc:x}"
 
-                    try:
-                        self.track(mtype, shown, depth)
-                    except ParseError as e:
-                        raise ParseError(f"failed to track a member"
-                                         f" {mtype.tag} '{mname}' " + str(e))
-                    members.append(f"\t{self.gen_decl(mtype, mname)};"
-                                   + f"\t/* +0x{mloc:x} */");
-                    print("\n/* @", self.src_location(node), "*/")
-                    print(self.gen_decl(node)
-                          + "\t{" + f"/* size=0x{node.byte_size:x} */")
-                if members:
-                    for line in members:
-                        print(line)
-                elif size > 0:
-                    print(f"\tchar dummy[0x{node.byte_size:x}];")
-                    print("};")
-
-            if decl_only:
-                if shown.get(node.nickname, None) != "defined":
-                    shown[node.nickname] = "declared`"
-                else:
-                    shown[node.nickname] = "defined"
+                try:
+                    self.track(mtype, shown, depth)
+                except ParseError as e:
+                    raise ParseError(f"failed to track a member"
+                                     f" {mtype.tag} '{mname}' " + str(e))
+                members.append(f"\t{self.gen_decl(mtype, mname)};"
+                               + f"\t/* +0x{mloc:x} */");
+            print("\n/* @", self.src_location(node), "*/")
+            print(self.gen_decl(node)
+                  + "\t{" + f"/* size=0x{node.byte_size:x} */")
+            if members:
+                for line in members:
+                    print(line)
+            elif size > 0:
+                print(f"\tchar dummy[0x{node.byte_size:x}];")
+            print("};")
             return
 
         if node.tag == "DW_TAG_enumeration_type":
