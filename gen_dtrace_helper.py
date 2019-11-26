@@ -77,9 +77,10 @@ class TypeDG:
             if not self.is_valid_name(name):
                 name = None
         nickname = name
-        keyword = self.TAGS_for_types.get(die.tag, None)
-        if keyword:
-            nickname = f"anon_{keyword}_CU0x{die.cu.cu_offset:x}_GOFF0x{die.offset:x}"
+        if nickname is None:
+            keyword = self.TAGS_for_types.get(die.tag, None)
+            if keyword:
+                nickname = f"anon_{keyword}__GOFF0x{die.offset:x}"
         loc_file = die.attributes.get('DW_AT_decl_file', None)
         if loc_file:
             fileno = loc_file.value - 1 # DwarfV4
@@ -290,15 +291,15 @@ class TypeDG:
         if node is None:
             return
         depth = depth + 1
-        if node.nickname:
-            is_known = shown.get(node.nickname, None)
-            if is_known == "defined":
-                return
-            if is_known == "declared" and maybe_incomplete:
-                return
-            
-        decl_only = False
+
         if node.tag == "DW_TAG_base_type":
+            return
+
+        if node.tag == "DW_TAG_pointer_type":
+            try:
+                self.track(self.get_type_node(node), shown, depth, True)
+            except ParseError as e:
+                raise ParseError("pointer -> " + str(e)) from e
             return
 
         if node.tag in ("DW_TAG_subprogram",
@@ -312,20 +313,6 @@ class TypeDG:
                     self.track(self.get_type_node(child), shown, depth)
                 except ParseError as e:
                     raise ParseError("formal-parameter -> " + str(e)) from e
-            return
-
-        if node.tag == "DW_TAG_pointer_type":
-            try:
-                self.track(self.get_type_node(node), shown, depth, True)
-            except ParseError as e:
-                raise ParseError("pointer -> " + str(e)) from e
-            return
-
-        if node.tag in self.TAGS_for_qualifiers:
-            try:
-                self.track(self.get_type_node(node), shown, depth)
-            except ParseError as e:
-                raise ParseError("qual -> " + str(e)) from e
             return
 
         if node.tag == "DW_TAG_array_type":
@@ -349,18 +336,30 @@ class TypeDG:
                 raise ParseError("rvalue -> " + str(e)) from e
             return
 
+        if node.tag in self.TAGS_for_qualifiers:
+            try:
+                self.track(self.get_type_node(node), shown, depth)
+            except ParseError as e:
+                raise ParseError("qual -> " + str(e)) from e
+            return
 
-        # tags that may trigger 'redefinition'
+        # tags below may trigger 'redefinition'
+        if node.nickname in shown:
+            is_known = shown[node.nickname]
+            if is_known == "defined":
+                return
+            if is_known == "declared" and maybe_incomplete:
+                return
+
         if node.tag == "DW_TAG_typedef":
             dep = self.get_type_node(node)
             try:
                 self.track(dep, shown, depth)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
-            defined_name = self._get_die_name(node)
-            
-            print(f"\n/* @ {self.src_location(node)}, define '{defined_name}' */")
-            print(f"typedef {self.gen_decl(dep, defined_name)};")
+            print(f"\n/* @ {self.src_location(node)}, define '{node.nickname}' */")
+            print(f"typedef {self.gen_decl(dep, node.nickname)};")
+            shown[node.nickname] = "defined"
             return
 
         if node.tag in ("DW_TAG_structure_type",
@@ -413,11 +412,15 @@ class TypeDG:
             tag = self._get_die_name(node, True)
             if tag in shown:
                 return
-            shown[node.name] = "delcared"
+            shown[node.nickname] = "defined"
             members = []
             for child_goff in node.deps:
                 child = self.offset_to_node[child_goff]
-                members.append(f"\t{self._get_die_name(child)} = {child.count}")
+                cname = self._get_die_name(child)
+                if cname in shown:
+                    cname = f"{cname}__GOFF0x{node.offset:x}"
+                shown[cname] = "defined"
+                members.append(f"\t{cname} = {child.count}")
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
             print("};")
