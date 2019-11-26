@@ -22,7 +22,8 @@ class Node:
     is_decl: bool
     decl_src: str
     decl_line: int
-    byte_size: int # for composite types
+    byte_size: int
+    bit_size: int # bitfields
     deps: Iterable[int] # for composite types
     count: int # for arrays
     data_member_location: int # for members
@@ -93,6 +94,8 @@ class TypeDG:
         loc_line = die.attributes.get('DW_AT_decl_line', None)
         byte_size = die.attributes.get('DW_AT_byte_size')
         byte_size = byte_size.value if byte_size else -1
+        bit_size = die.attributes.get('DW_AT_bit_size')
+        bit_size = bit_size.value if bit_size else None
         deps = None
         if die.tag in ("DW_TAG_structure_type",
                        "DW_TAG_class_type",
@@ -123,7 +126,10 @@ class TypeDG:
 
         data_member_location = None
         if die.tag == "DW_TAG_member":
-            data_member_location = die.attributes["DW_AT_data_member_location"].value
+            if "DW_AT_data_member_location" in die.attributes:
+                data_member_location = die.attributes["DW_AT_data_member_location"].value
+            elif  "DW_AT_bit_offset" in die.attributes:
+                data_member_location = die.attributes["DW_AT_bit_offset"].value
         return Node(
             tag = sys.intern(die.tag),
             offset = die.offset,
@@ -134,6 +140,7 @@ class TypeDG:
             decl_src = sys.intern(srcfile),
             decl_line = loc_line.value if loc_line else -1,
             byte_size = byte_size,
+            bit_size = bit_size,
             deps = deps,
             count = count,
             data_member_location = data_member_location,
@@ -159,7 +166,7 @@ class TypeDG:
                 node = self.summarize(die)
             except ParseError as e:
                 print(f"/* ignored {die.tag} at {die.offset}: {str(e)} */")
-
+                return
             self.offset_to_node[die.offset] = node
             symolname = None
             if not (die.tag in self.TAGS_for_types):
@@ -217,24 +224,24 @@ class TypeDG:
                 return "void"
             return "void " + name
         
-        elif node.tag == "DW_TAG_base_type":
+        if node.tag == "DW_TAG_base_type":
             if name:
                 return (node.name + " " + name)
             return (node.name)
 
-        elif node.tag == "DW_TAG_pointer_type":
+        if node.tag == "DW_TAG_pointer_type":
             return (self.gen_decl(self.type_of(node),
                                   "*" + (name if name else "")))
 
-        elif node.tag == "DW_TAG_reference_type":
+        if node.tag == "DW_TAG_reference_type":
             return (self.gen_decl(self.type_of(node),
                                   "/*<&>*/" +(name if name else "")))
 
-        elif node.tag == "DW_TAG_rvalue_reference_type":
+        if node.tag == "DW_TAG_rvalue_reference_type":
             return (self.gen_decl(self.type_of(node),
                                   "/*<&&>*/" +(name if name else "")))
 
-        elif node.tag == "DW_TAG_subroutine_type":
+        if node.tag == "DW_TAG_subroutine_type":
             fparams = []
             for child_goff in node.deps:
                 child = self.offset_to_node[child_goff]
@@ -244,14 +251,14 @@ class TypeDG:
             return (self.gen_decl(self.type_of(node))
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
-        elif node.tag == "DW_TAG_array_type":
+        if node.tag == "DW_TAG_array_type":
             count = "[]"
             if node.count >= 0: 
                 count = f"[{node.count}]"
             return (self.gen_decl(self.type_of(node))
                     + " " + name + count)
 
-        elif self.TAGS_for_qualifiers.get(node.tag, None):
+        if self.TAGS_for_qualifiers.get(node.tag, None):
             if node.tag == "DW_TAG_restrict_type":
                 prefix = ""
             else:
@@ -259,7 +266,7 @@ class TypeDG:
             return (prefix
                     + self.gen_decl(self.type_of(node), name))
 
-        elif self.TAGS_for_types.get(node.tag, None):
+        if self.TAGS_for_types.get(node.tag, None):
             keyword = self.TAGS_for_types.get(node.tag, None)
             if keyword is None:
                 raise ParseError("no keyword is known for " + node.tag)
@@ -380,15 +387,17 @@ class TypeDG:
                 except ParseError as e:
                     raise ParseError(f"failed to track a member"
                                      f" {mtype.tag} '{mname}' " + str(e))
+                if not child.bit_size is None:
+                    mname += f":{child.bit_size}"
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* +0x{mloc:x} */");
             print(f"\n/* @ {node.src_location()} */")
-            print(self.gen_decl(node)+ "\t{"
+            print(self.gen_decl(node)+ " {"
                   f"/* size=0x{node.byte_size:x} */")
             if members:
                 for line in members:
                     print(line)
-            elif size > 0:
+            elif node.byte_size > 0:
                 print(f"\tchar dummy[0x{node.byte_size:x}];")
             print("};")
             return
