@@ -20,15 +20,15 @@ class Node:
     nickname: str
     type_goff: int
     is_decl: bool
-    decl_src: str
+    decl_file: str
     decl_line: int
     byte_size: int
     bit_size: int # bitfields
     deps: Iterable[int] # for composite types
-    count: int # for arrays
+    quantity: int # for arrays
     data_member_location: int # for members
     def src_location(self) -> str:
-        return f"{self.decl_src}:{self.decl_line}"
+        return f"{self.decl_file}:{self.decl_line}"
 
 class TypeDG:
     TAGS_for_types = {
@@ -56,22 +56,6 @@ class TypeDG:
     def __init__(self):
         self.symbols = {}
         self.offset_to_node = {}
-    @staticmethod
-    def get_type_goff(die: DIE):
-        at_type = die.attributes.get('DW_AT_type', None)
-        if not at_type:
-            return -1
-        if at_type.form == "DW_FORM_ref_addr":
-            # global offset (needs relocation?)
-            return at_type.value
-        if at_type.form == "DW_FORM_ref_sig8":
-            # 8-byte type signature
-            raise ParseError("cannot handle {at_type.form} yet")
-        if at_type.form in {"DW_FORM_ref_sup4", "DW_FORM_ref_sup8"}:
-            # supplementary obj file?
-            raise ParseError("cannot handle {at_type.form} yet")
-        # for _ref[1248] or _ref_udata, CU-local offset
-        return at_type.value + die.cu.cu_offset
 
     def summarize(self, die: DIE):
         name = None
@@ -84,18 +68,41 @@ class TypeDG:
             keyword = self.TAGS_for_types.get(die.tag, None)
             if keyword:
                 nickname = f"anon_{keyword}__GOFF0x{die.offset:x}"
-        loc_file = die.attributes.get('DW_AT_decl_file', None)
-        if loc_file:
-            fileno = loc_file.value - 1 # DwarfV4
-            line_program = die.cu.dwarfinfo.line_program_for_CU(die.cu)
-            srcfile = line_program['file_entry'][fileno].name.decode(ENCODING)
-        else:
-            srcfile = "_nowhere_"
-        loc_line = die.attributes.get('DW_AT_decl_line', None)
-        byte_size = die.attributes.get('DW_AT_byte_size')
-        byte_size = byte_size.value if byte_size else -1
-        bit_size = die.attributes.get('DW_AT_bit_size')
-        bit_size = bit_size.value if bit_size else None
+        def get_type_goff(die):
+            at_type = die.attributes.get('DW_AT_type', None)
+            if not at_type:
+                return -1
+            if at_type.form == "DW_FORM_ref_addr":
+                # global offset (needs relocation?)
+                return at_type.value
+            if at_type.form == "DW_FORM_ref_sig8":
+                # 8-byte type signature
+                raise ParseError("cannot handle {at_type.form} yet")
+            if at_type.form in {"DW_FORM_ref_sup4", "DW_FORM_ref_sup8"}:
+                # supplementary obj file?
+                raise ParseError("cannot handle {at_type.form} yet")
+            # for _ref[1248] or _ref_udata, CU-local offset
+            return at_type.value + die.cu.cu_offset
+        def get_decl_file(die):
+            if not die.tag in self.TAGS_for_types:
+                return "_omitted_"
+            decl_file = die.attributes.get('DW_AT_decl_file', None)
+            if decl_file:
+                # note: no need to -1 for DWARFv5?
+                fileno = decl_file.value - 1
+                line_program = die.cu.dwarfinfo.line_program_for_CU(die.cu)
+                return line_program['file_entry'][fileno].name.decode(ENCODING)
+            else:
+                return "_nowhere_"
+        def get_decl_line(die):
+            decl_line = die.attributes.get('DW_AT_decl_line', None)
+            return decl_line.value if decl_line else -1
+        def get_byte_size(die):
+            byte_size = die.attributes.get('DW_AT_byte_size')
+            return byte_size.value if byte_size else -1
+        def get_bit_size(die):
+            bit_size = die.attributes.get('DW_AT_bit_size')
+            return bit_size.value if bit_size else None
         deps = None
         if die.tag in ("DW_TAG_structure_type",
                        "DW_TAG_class_type",
@@ -109,21 +116,19 @@ class TypeDG:
         elif die.tag == "DW_TAG_enumeration_type":
             deps = [child.offset for child in die.iter_children()
                     if child.tag == "DW_TAG_enumerator"]
-        count = -1
-        if die.tag == "DW_TAG_array_type":
-            for child in die.iter_children():
-                if child.tag != "DW_TAG_subrange_type":
-                    continue
-                if not "DW_AT_count" in child.attributes:
-                    continue
-                count = child.attributes['DW_AT_count'].value
-        elif die.tag == "DW_TAG_enumerator":
-            ctval = die.attributes["DW_AT_const_value"]
-            if ctval:
-                count = ctval.value
-            else:
-                count = None
-
+        def get_quantity(die):
+            if die.tag == "DW_TAG_array_type":
+                for child in die.iter_children():
+                    if child.tag != "DW_TAG_subrange_type":
+                        continue
+                    if not "DW_AT_count" in child.attributes:
+                        continue
+                    return child.attributes['DW_AT_count'].value
+            if die.tag == "DW_TAG_enumerator":
+                ctval = die.attributes["DW_AT_const_value"]
+                if ctval:
+                    return ctval.value
+            return None
         data_member_location = None
         if die.tag == "DW_TAG_member":
             if "DW_AT_data_member_location" in die.attributes:
@@ -135,14 +140,14 @@ class TypeDG:
             offset = die.offset,
             name = name,
             nickname = nickname,
-            type_goff = self.get_type_goff(die),
+            type_goff = get_type_goff(die),
             is_decl = ("DW_AT_declaration" in die.attributes),
-            decl_src = sys.intern(srcfile),
-            decl_line = loc_line.value if loc_line else -1,
-            byte_size = byte_size,
-            bit_size = bit_size,
+            decl_file = sys.intern(get_decl_file(die)),
+            decl_line = get_decl_line(die),
+            byte_size = get_byte_size(die),
+            bit_size = get_bit_size(die),
             deps = deps,
-            count = count,
+            quantity = get_quantity(die),
             data_member_location = data_member_location,
         )
     def parse_cu(self, CU: elftools.dwarf.compileunit.CompileUnit):
@@ -253,8 +258,8 @@ class TypeDG:
 
         if node.tag == "DW_TAG_array_type":
             count = "[]"
-            if node.count >= 0: 
-                count = f"[{node.count}]"
+            if not node.quantity is None:
+                count = f"[{node.quantity}]"
             return (self.gen_decl(self.type_of(node))
                     + " " + name + count)
 
@@ -413,7 +418,7 @@ class TypeDG:
                 if cname in shown:
                     cname = f"{cname}__GOFF0x{node.offset:x}"
                 shown[cname] = "defined"
-                members.append(f"\t{cname} = {child.count}")
+                members.append(f"\t{cname} = {child.quantity}")
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
             print("};")
