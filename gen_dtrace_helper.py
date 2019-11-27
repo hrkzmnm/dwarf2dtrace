@@ -65,10 +65,28 @@ class TypeDG:
             def build_node(die):
                 def get_die_attr(die, attrname, default = None):
                     attr = die.attributes.get(attrname, None)
-                    return default if (attr is None) else attr.value
+                    if attr is None:
+                        return default
+                    if attr.form in {"DW_FORM_data1",                                     
+                                     "DW_FORM_data2",
+                                     "DW_FORM_data4",
+                                     "DW_FORM_data8",
+                                     "DW_FORM_sdata",
+                                     "DW_FORM_udata",}:
+                        return attr.value
+                    if attr.form in {"DW_FORM_ref_addr",
+                                     "DW_FORM_ref1",
+                                     "DW_FORM_ref2",
+                                     "DW_FORM_ref4",
+                                     "DW_FORM_ref8",
+                                     "DW_FORM_ref_udata",}:
+                        return attr.value + die.cu.cu_offset # CU-relative
+                    if attr.form in {"DW_FORM_strp",}:
+                        return attr.value.decode(ENCODING)
+                    raise ParseError(f"cannot handle {die.tag} {attr.form} yet")
                 name = None
                 if 'DW_AT_name' in die.attributes:
-                    name = die.attributes["DW_AT_name"].value.decode(ENCODING)
+                    name = get_die_attr(die, "DW_AT_name")
                     if not self.is_valid_name(name):
                         name = None
                 def gen_nickname(die, name):
@@ -78,21 +96,6 @@ class TypeDG:
                     if not keyword is None:
                         return f"anon_{keyword}__GOFF0x{die.offset:x}"
                     return None
-                def get_type_goff(die):
-                    at_type = die.attributes.get('DW_AT_type', None)
-                    if not at_type:
-                        return None
-                    if at_type.form == "DW_FORM_ref_addr":
-                        # global offset
-                        return at_type.value
-                    if at_type.form == "DW_FORM_ref_sig8":
-                        # 8-byte type signature
-                        raise ParseError("cannot handle {at_type.form} yet")
-                    if at_type.form in {"DW_FORM_ref_sup4", "DW_FORM_ref_sup8"}:
-                        # supplementary obj file?
-                        raise ParseError("cannot handle {at_type.form} yet")
-                    # for _ref[1248] or _ref_udata, CU-local offset
-                    return at_type.value + die.cu.cu_offset
                 def get_decl_file(die):
                     if not die.tag in self.TAGS_for_types:
                         return "_omitted_"
@@ -142,7 +145,7 @@ class TypeDG:
                     offset = die.offset,
                     name = name,
                     nickname = gen_nickname(die, name),
-                    type_goff = get_type_goff(die),
+                    type_goff = get_die_attr(die, "DW_AT_type"),
                     is_decl = ("DW_AT_declaration" in die.attributes),
                     decl_file = sys.intern(get_decl_file(die)),
                     decl_line = get_die_attr(die, 'DW_AT_decl_line'),
@@ -361,7 +364,10 @@ class TypeDG:
             shown[node.nickname] = "defined" # pretend to know itself
             members = []
             for child_goff in node.deps:
-                child = self.offset_to_node[child_goff]
+                try:
+                    child = self.offset_to_node[child_goff]
+                except KeyError as e:
+                    raise ParseError(f"{node.nickname}-> {child_goff}: {str(e)}")
                 mtype = self.type_of(child)
                 if mtype is None:
                     raise ParseError(f"failed to get {mname}'s type")
@@ -400,7 +406,10 @@ class TypeDG:
             shown[node.nickname] = "defined"
             members = []
             for child_goff in node.deps:
-                child = self.offset_to_node[child_goff]
+                try:
+                    child = self.offset_to_node[child_goff]
+                except KeyError as e:
+                    raise ParseError(f"{node.nickname}-> {child_goff}: {str(e)}")
                 cname = child.name
                 if cname in shown:
                     cname = f"{cname}__GOFF0x{node.offset:x}"
