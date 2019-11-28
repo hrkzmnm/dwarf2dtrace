@@ -59,7 +59,7 @@ class TypeDG:
     def __init__(self):
         self.offset_to_node = {}
 
-    def parse_file(self, f): 
+    def parse_file(self, f, cu_filter = None): 
         from elftools.dwarf import constants
         import elftools.elf.elffile
         efile = elftools.elf.elffile.ELFFile(f)
@@ -170,6 +170,8 @@ class TypeDG:
                 walk(child, file_table)
         for CU in dwinfo.iter_CUs():
             top = CU.get_top_DIE()
+            if cu_filter and not cu_filter(top.get_full_path()):
+                continue
             if self.VERBOSE > 0:
                 print(f"\n/** CU GOFF0x{CU.cu_offset:x} '{top.get_full_path()}' **/")
             if not top.attributes['DW_AT_language'].value in {
@@ -195,7 +197,7 @@ class TypeDG:
         try:
             return self.offset_to_node[goff]
         except KeyError as e:
-            raise ParseError(f"no node for offset=0x{goff:x}") from e
+            raise ParseError(f"no node for GOFF=0x{goff:x}") from e
 
     def explain(self, checker: Callable[[Node], bool] = None):
         shown = {}
@@ -207,7 +209,8 @@ class TypeDG:
             try:
                 self.track(node, shown, [])
             except ParseError as e:
-                print(f"/* skipped {node.tag} '{node.nickname}'"
+                print(f"/* skipped GOFF=0x{node.offset:x}"
+                      f" {node.tag} '{node.nickname}'"
                       f" at {node.src_location()}: {str(e)} */")
 
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
