@@ -377,11 +377,11 @@ class TypeDG:
                 child = self.get_node(child_goff)
                 mtype = self.get_node(child.type_goff)
                 if mtype is None:
-                    raise ParseError(f"failed to get {mname}'s type")
+                    raise ParseError(f"failed to get {child.nickname}'s type")
                 mloc = child.data_member_location
                 if mloc is None:
-                    raise ParseError(f"failed to get {mname}'s doff")
-                notes = [f"+0x{mloc:x}"]
+                    mloc = 0
+                notes = [f"loc=0x{mloc:x}"]
                 if not child.bit_offset is None:
                     notes.append(f"bitoff=0x{child.bit_offset:x}")
                 mname = child.name
@@ -395,7 +395,7 @@ class TypeDG:
                 if not child.bit_size is None:
                     mname += f":{child.bit_size}"
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
-                               f"\t/* {' '.join(notes)} */");
+                               f"\t/* {', '.join(notes)} */");
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             notes = []
             if not node.byte_size is None:
