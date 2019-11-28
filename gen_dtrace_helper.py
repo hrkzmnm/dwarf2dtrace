@@ -414,9 +414,10 @@ class TypeDG:
             return
 
         if node.tag == "DW_TAG_enumeration_type":
-            if node.nickname in shown:
+            key = "typedef " + node.nickname
+            if key in shown:
                 return
-            shown[node.nickname] = "defined"
+            shown[key] = "defined"
             members = []
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
