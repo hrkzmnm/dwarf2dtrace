@@ -70,15 +70,15 @@ class TypeDG:
                     attr = die.attributes.get(attrname, None)
                     if attr is None:
                         return default
-                    if attr.form in {"DW_FORM_data1",                                     
+                    if attr.form in {"DW_FORM_ref_addr",
+                                     "DW_FORM_data1",
                                      "DW_FORM_data2",
                                      "DW_FORM_data4",
                                      "DW_FORM_data8",
                                      "DW_FORM_sdata",
                                      "DW_FORM_udata",}:
                         return attr.value
-                    if attr.form in {"DW_FORM_ref_addr",
-                                     "DW_FORM_ref1",
+                    if attr.form in {"DW_FORM_ref1",
                                      "DW_FORM_ref2",
                                      "DW_FORM_ref4",
                                      "DW_FORM_ref8",
