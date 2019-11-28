@@ -348,8 +348,12 @@ class TypeDG:
                 self.track(dep, shown, stack)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
+            if dep:
+                orig = f"GOFF0x{dep.offset:x}"
+            else:
+                orig = "(none?)"
             print(f"\n/*  GOFF0x{node.offset:x} @ {node.src_location()}, "
-                  f"define GOFF0x{dep.offset:x} as '{node.nickname}' */")
+                  f"define {orig} as '{node.nickname}' */")
             print(f"typedef {self.gen_decl(dep, node.nickname)};")
             shown[node.nickname] = "defined"
             return
