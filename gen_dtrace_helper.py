@@ -335,17 +335,15 @@ class TypeDG:
                     raise ParseError("formal-parameter -> " + str(e)) from e
             return
 
-        # tags below paecitipate dependancy stack
+        # tags below may trigger 'redefinition' errors,
+        # and paecitipate dependancy stack
         stack = stack + [node]
-        # tags below may trigger 'redefinition' errors
-        if node.nickname in shown:
-            is_known = shown[node.nickname]
-            if is_known == "defined":
-                return
-            if is_known == "declared" and maybe_incomplete:
-                return
 
         if node.tag == "DW_TAG_typedef":
+            key = "typedef " + node.nickname
+            cur = shown.get(key, None)
+            if key:
+                return
             dep = self.get_node(node.type_goff)
             try:
                 self.track(dep, shown, stack)
@@ -358,23 +356,23 @@ class TypeDG:
             print(f"\n/*  GOFF0x{node.offset:x} @ {node.src_location()}, "
                   f"define {orig} as '{node.nickname}' */")
             print(f"typedef {self.gen_decl(dep, node.nickname)};")
-            shown[node.nickname] = "defined"
+            shown[key] = "defined"
             return
 
         if node.tag in ("DW_TAG_structure_type",
                         "DW_TAG_class_type",
                         "DW_TAG_union_type"):
-            if maybe_incomplete or node.is_decl:
-                cur = shown.get(node.nickname, None)
-                if cur is None:
-                    postfix = ";"
-                    if stack and len(stack) > 1:
-                        p = stack[-2]
-                        postfix += (f"/* for GOFF0x{p.offset:x} {p.nickname} */")
-                    print(self.gen_decl(node) + postfix)
-                    shown[node.nickname] = "declared"
+            key = node.nickname
+            cur = shown.get(key, None)
+            if ( (node in stack[:-1]) or
+                 ((maybe_incomplete or node.is_decl) and cur is None) ):
+                postfix = ";"
+                if stack and len(stack) > 1:
+                    p = stack[-2]
+                    postfix += (f"/* for GOFF0x{p.offset:x} {p.nickname} */")
+                print(self.gen_decl(node) + postfix)
+                shown[key] = "declared"
                 return
-            shown[node.nickname] = "defined" # pretend to know itself
             members = []
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
@@ -411,13 +409,13 @@ class TypeDG:
             elif not node.byte_size is None:
                 print(f"\tchar dummy[0x{node.byte_size:x}];")
             print("};")
+            shown[key] = "defined"
             return
 
         if node.tag == "DW_TAG_enumeration_type":
-            key = "typedef " + node.nickname
+            key = node.nickname
             if key in shown:
                 return
-            shown[key] = "defined"
             members = []
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
@@ -430,6 +428,7 @@ class TypeDG:
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
             print("};")
+            shown[key] = "defined"
             return
 
         raise ParseError("incompatible tag: " + node.tag)
