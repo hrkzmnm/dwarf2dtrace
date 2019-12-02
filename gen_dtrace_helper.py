@@ -207,6 +207,8 @@ class TypeDG:
             if checker and not checker(node):
                 continue
             try:
+                if self.VERBOSE > 0:
+                    print(f"/* try {node.tag} {node.nickname} */\n")
                 self.track(node, shown, [])
             except ParseError as e:
                 print(f"/* skipped GOFF=0x{node.offset:x}"
@@ -363,7 +365,13 @@ class TypeDG:
                         "DW_TAG_union_type"):
             key = node.nickname
             cur = shown.get(key)
+            if self.VERBOSE > 0:
+                print(f"/* '{node.nickname}':"
+                      f" maybe_incomplete={maybe_incomplete}"
+                      f" is_decl={node.is_decl} cur={cur} */")
             if cur == "defined":
+                return
+            if node.is_decl and cur == "declared":
                 return
             if ( (node in stack[:-1]) or
                  ((maybe_incomplete or node.is_decl) and cur is None) ):
@@ -396,6 +404,8 @@ class TypeDG:
                                      f" {mtype.tag} '{mname}' {str(e)}")
                 if not child.bit_size is None:
                     mname += f":{child.bit_size}"
+                if self.VERBOSE > 0:
+                    print(f"// - {mname}")
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* {', '.join(notes)} */");
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
