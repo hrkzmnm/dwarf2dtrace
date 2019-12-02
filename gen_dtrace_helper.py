@@ -364,6 +364,8 @@ class TypeDG:
                         "DW_TAG_union_type"):
             key = node.nickname
             cur = shown.get(key, None)
+            if cur == "defined":
+                return
             if ( (node in stack[:-1]) or
                  ((maybe_incomplete or node.is_decl) and cur is None) ):
                 postfix = ";"
@@ -397,7 +399,7 @@ class TypeDG:
                     mname += f":{child.bit_size}"
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* {', '.join(notes)} */");
-            print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
+            print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} xx{shown.get(key)}*/")
             notes = []
             if not node.byte_size is None:
                 notes.append(f"size=0x{node.byte_size:x}")
