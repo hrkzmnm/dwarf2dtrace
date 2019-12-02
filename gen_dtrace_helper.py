@@ -218,7 +218,6 @@ class TypeDG:
             if name is None:
                 return "void"
             return "void " + name
-        
         if node.tag == "DW_TAG_base_type":
             if name:
                 return (node.name + " " + name)
@@ -258,8 +257,8 @@ class TypeDG:
                 prefix = ""
             else:
                 prefix = self.TAGS_for_qualifiers[node.tag] + " "
-            return (prefix
-                    + self.gen_decl(self.get_node(node.type_goff), name))
+            return (self.gen_decl(self.get_node(node.type_goff),
+                                  prefix + name))
 
         if self.TAGS_for_types.get(node.tag):
             keyword = self.TAGS_for_types.get(node.tag)
