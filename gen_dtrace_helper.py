@@ -67,7 +67,7 @@ class TypeDG:
         def register_die(die, file_table):
             def build_node(die):
                 def get_die_attr(die, attrname, default = None):
-                    attr = die.attributes.get(attrname, None)
+                    attr = die.attributes.get(attrname)
                     if attr is None:
                         return default
                     if attr.form in {"DW_FORM_ref_addr",
@@ -93,7 +93,7 @@ class TypeDG:
                 def gen_nickname(die, name):
                     if name:
                         return name
-                    keyword = self.TAGS_for_types.get(die.tag, None)
+                    keyword = self.TAGS_for_types.get(die.tag)
                     if keyword is None:
                         return None
                     return f"anon_{keyword}__GOFF0x{die.offset:x}"
@@ -253,7 +253,7 @@ class TypeDG:
             return (self.gen_decl(self.get_node(node.type_goff))
                     + " " + name + postfix)
 
-        if self.TAGS_for_qualifiers.get(node.tag, None):
+        if self.TAGS_for_qualifiers.get(node.tag):
             if node.tag == "DW_TAG_restrict_type":
                 prefix = ""
             else:
@@ -261,8 +261,8 @@ class TypeDG:
             return (prefix
                     + self.gen_decl(self.get_node(node.type_goff), name))
 
-        if self.TAGS_for_types.get(node.tag, None):
-            keyword = self.TAGS_for_types.get(node.tag, None)
+        if self.TAGS_for_types.get(node.tag):
+            keyword = self.TAGS_for_types.get(node.tag)
             if keyword is None:
                 raise ParseError("no keyword is known for " + node.tag)
             if keyword == "typedef":
@@ -341,8 +341,8 @@ class TypeDG:
 
         if node.tag == "DW_TAG_typedef":
             key = "typedef " + node.nickname
-            cur = shown.get(key, None)
-            if key:
+            cur = shown.get(key)
+            if cur:
                 return
             dep = self.get_node(node.type_goff)
             try:
@@ -363,7 +363,7 @@ class TypeDG:
                         "DW_TAG_class_type",
                         "DW_TAG_union_type"):
             key = node.nickname
-            cur = shown.get(key, None)
+            cur = shown.get(key)
             if cur == "defined":
                 return
             if ( (node in stack[:-1]) or
@@ -399,7 +399,7 @@ class TypeDG:
                     mname += f":{child.bit_size}"
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* {', '.join(notes)} */");
-            print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} xx{shown.get(key)}*/")
+            print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             notes = []
             if not node.byte_size is None:
                 notes.append(f"size=0x{node.byte_size:x}")
