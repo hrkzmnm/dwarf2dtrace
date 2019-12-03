@@ -348,6 +348,9 @@ class TypeDG:
             if cur:
                 return
             dep = self.get_node(node.type_goff)
+            if node.nickname.startswith("__builtin"):
+                print(f"/* skip {node.nickname}, must be system-defined */");
+                return
             try:
                 self.track(dep, shown, stack)
             except ParseError as e:
