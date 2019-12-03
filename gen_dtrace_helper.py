@@ -208,7 +208,7 @@ class TypeDG:
                 continue
             try:
                 if self.VERBOSE > 0:
-                    print(f"/* try {node.tag} {node.nickname} */\n")
+                    print(f"\n//// trying {node.tag} {node.nickname}")
                 self.track(node, shown, [])
             except ParseError as e:
                 print(f"/* skipped GOFF=0x{node.offset:x}"
@@ -338,6 +338,8 @@ class TypeDG:
 
         # tags below may trigger 'redefinition' errors,
         # and paecitipate dependancy stack
+        depth = len(stack)
+        recursing = (node in stack)
         stack = stack + [node]
 
         if node.tag == "DW_TAG_typedef":
@@ -366,22 +368,37 @@ class TypeDG:
             key = node.nickname
             cur = shown.get(key)
             if self.VERBOSE > 0:
-                print(f"/* '{node.nickname}':"
+                print(f"/* <{depth}> '{node.nickname}':"
                       f" maybe_incomplete={maybe_incomplete}"
-                      f" is_decl={node.is_decl} cur={cur} */")
+                      f" is_decl={node.is_decl} cur={cur} recursing={recursing} */")
             if cur == "defined":
+                if self.VERBOSE > 0:
+                    print(f"/*  <{depth}> skip (defined) */")
                 return
-            if node.is_decl and cur == "declared":
+            if (maybe_incomplete or node.is_decl) and not (cur is None):
+                if self.VERBOSE > 0:
+                    print(f"/*  <{depth}> skip (declared) */")
                 return
-            if ( (node in stack[:-1]) or
-                 ((maybe_incomplete or node.is_decl) and cur is None) ):
+            
+            def declare(node, stack, shown):
                 postfix = ";"
                 if stack and len(stack) > 1:
                     p = stack[-2]
                     postfix += (f"/* for GOFF0x{p.offset:x} {p.nickname} */")
                 print(self.gen_decl(node) + postfix)
                 shown[key] = "declared"
+                
+            if maybe_incomplete or node.is_decl:
+                if self.VERBOSE > 0:
+                    print(f"/*  <{depth}> decl-only */")
+                declare(node, stack, shown)
                 return
+            if recursing:
+                if self.VERBOSE > 0:
+                    print(f"/*  <{depth}> recursing */")
+                declare(node, stack, shown)
+                return
+
             members = []
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
@@ -405,7 +422,7 @@ class TypeDG:
                 if not child.bit_size is None:
                     mname += f":{child.bit_size}"
                 if self.VERBOSE > 0:
-                    print(f"// - {mname}")
+                    print(f"// tracked {node.nickname} :: {mname}")
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* {', '.join(notes)} */");
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
