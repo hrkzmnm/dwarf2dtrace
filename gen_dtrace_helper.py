@@ -59,7 +59,7 @@ class TypeDG:
     def __init__(self):
         self.offset_to_node = {}
 
-    def parse_file(self, f, cu_filter = None): 
+    def parse_file(self, f, cu_filter = None):
         from elftools.dwarf import constants
         import elftools.elf.elffile
         efile = elftools.elf.elffile.ELFFile(f)
@@ -125,7 +125,7 @@ class TypeDG:
                                 continue
                             return get_die_attr(child, "DW_AT_count")
                     if die.tag == "DW_TAG_enumerator":
-                        return get_die_attr(die, "DW_AT_const_value") 
+                        return get_die_attr(die, "DW_AT_const_value")
                     return None
                 def get_memory_location(die):
                     data_member_location = None
@@ -159,7 +159,7 @@ class TypeDG:
             self.offset_to_node[node.offset] = node
             if not (die.tag in self.TAGS_for_types):
                 return
-            if self.VERBOSE > 0 and node.name:
+            if self.VERBOSE > 1 and node.name:
                 print(f"/* '{node.name}' is {node.tag}"
                       f" GOFF0x{node.offset:x},"
                       f" {node.src_location()} */")
@@ -214,8 +214,11 @@ class TypeDG:
                 print(f"/* skipped GOFF=0x{node.offset:x}"
                       f" {node.tag} '{node.nickname}'"
                       f" at {node.src_location()}: {str(e)} */")
-
+    RESERVED_NAMES = {"provider"}
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
+        while name in self.RESERVED_NAMES:
+            name = name + "_"
+
         if node is None:
             if name is None:
                 return "void"
@@ -248,19 +251,22 @@ class TypeDG:
                     + " (" + name + ")(" + (", ".join(fparams)) + ")")
 
         if node.tag == "DW_TAG_array_type":
-            postfix = "[]"
-            if not node.quantity is None:
+            # dtrace may nor undetstand [] and [0]
+            if node.quantity is None:
+                postfix = "[1/*to be empty*/]"
+            elif node.quantity <= 0:
+                postfix = f"[1[/* to be 0 */]"
+            else:
                 postfix = f"[{node.quantity}]"
             return (self.gen_decl(self.get_node(node.type_goff))
                     + " " + name + postfix)
 
         if self.TAGS_for_qualifiers.get(node.tag):
-            if node.tag == "DW_TAG_restrict_type":
-                prefix = ""
-            else:
-                prefix = self.TAGS_for_qualifiers[node.tag] + " "
+            if node.tag != "DW_TAG_restrict_type":
+                if name:
+                    name = self.TAGS_for_qualifiers[node.tag] + " " + name
             return (self.gen_decl(self.get_node(node.type_goff),
-                                  prefix + name))
+                                  name))
 
         if self.TAGS_for_types.get(node.tag):
             keyword = self.TAGS_for_types.get(node.tag)
@@ -317,7 +323,7 @@ class TypeDG:
 
         if node.tag in self.TAGS_for_qualifiers:
             try:
-                self.track(self.get_node(node.type_goff), shown, stack)
+                self.track(self.get_node(node.type_goff), shown, stack, maybe_incomplete)
             except ParseError as e:
                 raise ParseError("qual -> " + str(e)) from e
             return
@@ -331,7 +337,7 @@ class TypeDG:
                 if child.tag != "DW_TAG_formal_parameter":
                     continue
                 try:
-                    self.track(self.get_node(child.type_goff), shown, stack)
+                    self.track(self.get_node(child.type_goff), shown, stack, maybe_incomplete)
                 except ParseError as e:
                     raise ParseError("formal-parameter -> " + str(e)) from e
             return
@@ -339,7 +345,6 @@ class TypeDG:
         # tags below may trigger 'redefinition' errors,
         # and paecitipate dependancy stack
         depth = len(stack)
-        recursing = (node in stack)
         stack = stack + [node]
 
         if node.tag == "DW_TAG_typedef":
@@ -373,7 +378,7 @@ class TypeDG:
             if self.VERBOSE > 0:
                 print(f"/* <{depth}> '{node.nickname}':"
                       f" maybe_incomplete={maybe_incomplete}"
-                      f" is_decl={node.is_decl} cur={cur} recursing={recursing} */")
+                      f" is_decl={node.is_decl} cur={cur} */")
             if cur == "defined":
                 if self.VERBOSE > 0:
                     print(f"/*  <{depth}> skip (defined) */")
@@ -396,11 +401,6 @@ class TypeDG:
                     print(f"/*  <{depth}> decl-only */")
                 declare(node, stack, shown)
                 return
-            if recursing:
-                if self.VERBOSE > 0:
-                    print(f"/*  <{depth}> recursing */")
-                declare(node, stack, shown)
-                return
 
             members = []
             for child_goff in node.deps:
@@ -417,22 +417,27 @@ class TypeDG:
                 mname = child.name
                 if not mname:
                     mname = f"unnamed{len(members)}__off0x{mloc:x}"
+                if self.VERBOSE > 0:
+                    print(f"// tracking {node.nickname} :: {mname}")
                 try:
-                    self.track(mtype, shown, stack)
+                    if mtype in stack:
+                        print(f"\n\n xxx {mtype} is in {stack}")
+                        if shown.get(mtype.nickname) is None:
+                            self.track(mtype, shown, stack, True)
+                    else:
+                        self.track(mtype, shown, stack, maybe_incomplete)
                 except ParseError as e:
                     raise ParseError(f"failed to track a member"
                                      f" {mtype.tag} '{mname}' {str(e)}")
                 if not child.bit_size is None:
                     mname += f":{child.bit_size}"
-                if self.VERBOSE > 0:
-                    print(f"// tracked {node.nickname} :: {mname}")
                 members.append(f"\t{self.gen_decl(mtype, mname)};"
                                f"\t/* {', '.join(notes)} */");
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             notes = []
             if not node.byte_size is None:
                 notes.append(f"size=0x{node.byte_size:x}")
-            print(f"{self.gen_decl(node)} {{" + 
+            print(f"{self.gen_decl(node)} {{" +
                   (f"\t/* {' '.join(notes)} */" if notes else ""))
             if members:
                 for line in members:
@@ -471,6 +476,6 @@ if __name__ == '__main__':
     with open(path, 'rb') as f:
         dg = TypeDG()
         dg.parse_file(f)
-        def everything(node: Node):
-            return True
-        dg.explain(everything)
+        def non_anon(node: Node):
+            return not (node.name is None)
+        dg.explain(non_anon)
