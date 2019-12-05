@@ -255,7 +255,7 @@ class TypeDG:
             if node.quantity is None:
                 postfix = "[1/*to be empty*/]"
             elif node.quantity <= 0:
-                postfix = f"[1[/* to be 0 */]"
+                postfix = f"[1/*to be 0*/]"
             else:
                 postfix = f"[{node.quantity}]"
             return (self.gen_decl(self.get_node(node.type_goff))
@@ -349,10 +349,8 @@ class TypeDG:
 
         if node.tag == "DW_TAG_typedef":
             key = "typedef " + node.nickname
-            cur = shown.get(key)
-            if cur:
-                return
             dep = self.get_node(node.type_goff)
+            orig = f"GOFF0x{dep.offset:x}"
             if node.nickname.startswith("__builtin"):
                 print(f"/* skip {node.nickname}, must be system-defined */");
                 return
@@ -360,10 +358,9 @@ class TypeDG:
                 self.track(dep, shown, stack)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
-            if dep:
-                orig = f"GOFF0x{dep.offset:x}"
-            else:
-                orig = "(none?)"
+            cur = shown.get(key)
+            if cur:
+                return
             print(f"\n/*  GOFF0x{node.offset:x} @ {node.src_location()}, "
                   f"define {orig} as '{node.nickname}' */")
             print(f"typedef {self.gen_decl(dep, node.nickname)};")
