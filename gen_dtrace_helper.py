@@ -200,7 +200,13 @@ class TypeDG:
             raise ParseError(f"no node for GOFF=0x{goff:x}") from e
 
     def explain(self, checker: Callable[[Node], bool] = None):
-        shown = {}
+        shown = dict( ("typedef " + k, "defined") for k in (
+            # _dtrace_typedefs_64
+            "int8_t", "int16_t", "int32_t", "int64_t",
+            "intptr_t", "ssize_t",
+            "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+            "uchar_t", "ushort_t", "uint_t", "ulong_t", "u_longlong_t",
+            "ptrdiff_t", "uintptr_t", "size_t", "id_t", "pid_t"))
         for goff, node in self.offset_to_node.items():
             if not node.tag in self.TAGS_for_types:
                 continue
