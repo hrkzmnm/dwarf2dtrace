@@ -221,6 +221,9 @@ class TypeDG:
                       f" {node.tag} '{node.nickname}'"
                       f" at {node.src_location()}: {str(e)} */")
     RESERVED_NAMES = {
+        "this",
+        "string",
+        "prove",
         "provider", # user-land DTrace
     }
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
