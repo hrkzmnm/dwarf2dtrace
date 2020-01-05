@@ -449,7 +449,9 @@ class TypeDG:
                 for line in members:
                     print(line)
             elif not node.byte_size is None:
-                print(f"\tchar dummy[0x{node.byte_size:x}];")
+                # dtrace may not allow C99 arrays
+                size = node.byte_size if node.byte_size > 0 else 1
+                print(f"\tchar dummy[0x{size:x}];")
             print("};")
             shown[key] = "defined"
             return
