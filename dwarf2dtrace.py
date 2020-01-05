@@ -366,7 +366,7 @@ class TypeDG:
                 print(f"/* skip {node.nickname}, must be system-defined */");
                 return
             try:
-                self.track(dep, shown, stack)
+                self.track(dep, shown, stack, maybe_incomplete)
             except ParseError as e:
                 raise ParseError("typedef -> " + str(e)) from e
             cur = shown.get(key)
