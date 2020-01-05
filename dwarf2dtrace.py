@@ -50,7 +50,7 @@ class TypeDG:
         "DW_TAG_atomic_type": "_Atomic", # C11
     }
     badchars = re.compile(".*[^A-Za-z0-9_ ]")
-    VERBOSE = 1
+    VERBOSE = 0
     def is_invalid_name(self, name: str):
         if self.badchars.match(name):
             return True
@@ -220,7 +220,9 @@ class TypeDG:
                 print(f"/* skipped GOFF=0x{node.offset:x}"
                       f" {node.tag} '{node.nickname}'"
                       f" at {node.src_location()}: {str(e)} */")
-    RESERVED_NAMES = {"provider"}
+    RESERVED_NAMES = {
+        "provider", # user-land DTrace
+    }
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
         while name in self.RESERVED_NAMES:
             name = name + "_"
@@ -390,21 +392,16 @@ class TypeDG:
                 if self.VERBOSE > 0:
                     print(f"/*  <{depth}> skip (declared) */")
                 return
-            
-            def declare(node, stack, shown):
+            if maybe_incomplete or node.is_decl:
+                if self.VERBOSE > 0:
+                    print(f"/*  <{depth}> decl-only */")
                 postfix = ";"
                 if stack and len(stack) > 1:
                     p = stack[-2]
                     postfix += (f"/* for GOFF0x{p.offset:x} {p.nickname} */")
                 print(self.gen_decl(node) + postfix)
                 shown[key] = "declared"
-                
-            if maybe_incomplete or node.is_decl:
-                if self.VERBOSE > 0:
-                    print(f"/*  <{depth}> decl-only */")
-                declare(node, stack, shown)
                 return
-
             members = []
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
