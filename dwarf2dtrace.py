@@ -358,7 +358,10 @@ class TypeDG:
         if node.tag == "DW_TAG_typedef":
             key = "typedef " + node.nickname
             dep = self.get_node(node.type_goff)
-            orig = f"GOFF0x{dep.offset:x}"
+            if dep:
+                orig = f"GOFF0x{dep.offset:x}"
+            else:
+                orig = "None"
             if node.nickname.startswith("__builtin"):
                 print(f"/* skip {node.nickname}, must be system-defined */");
                 return
