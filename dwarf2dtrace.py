@@ -51,6 +51,7 @@ class TypeDG:
     }
     badchars = re.compile(".*[^A-Za-z0-9_ ]")
     VERBOSE = 0
+    CTF_MAX_VLEN = 1023
     def is_invalid_name(self, name: str):
         if self.badchars.match(name):
             return True
@@ -221,10 +222,16 @@ class TypeDG:
                       f" {node.tag} '{node.nickname}'"
                       f" at {node.src_location()}: {str(e)} */")
     RESERVED_NAMES = {
-        "this",
+        "counter",
+        "import",
+        "mtx",
         "string",
-        "prove",
+        "this",
+        "probe",
         "provider", # user-land DTrace
+
+        "SyncChannel",
+        "EventFlag",
     }
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
         while name in self.RESERVED_NAMES:
@@ -366,7 +373,8 @@ class TypeDG:
             else:
                 orig = "None"
             if node.nickname.startswith("__builtin"):
-                print(f"/* skip {node.nickname}, must be system-defined */");
+                if self.VERBOSE > 0:
+                    print(f"/* skip {node.nickname}, must be system-defined */");
                 return
             try:
                 self.track(dep, shown, stack, maybe_incomplete)
@@ -427,7 +435,8 @@ class TypeDG:
                     print(f"// tracking {node.nickname} :: {mname}")
                 try:
                     if mtype in stack:
-                        print(f"\n\n xxx {mtype} is in {stack}")
+                        if self.VERBOSE > 0:
+                            print(f"/* {mtype} is in {stack} */")
                         if shown.get(mtype.nickname) is None:
                             self.track(mtype, shown, stack, True)
                     else:
@@ -437,8 +446,13 @@ class TypeDG:
                                      f" {mtype.tag} '{mname}' {str(e)}")
                 if not child.bit_size is None:
                     mname += f":{child.bit_size}"
-                members.append(f"\t{self.gen_decl(mtype, mname)};"
-                               f"\t/* {', '.join(notes)} */");
+                if child.bit_offset and child.bit_offset != mloc * 8:
+                    members.append(f"\t/*{self.gen_decl(mtype, mname)}*/ "
+                                   f"int {mname};"
+                                   f"\t/* {', '.join(notes)} */");
+                else:
+                    members.append(f"\t{self.gen_decl(mtype, mname)};"
+                                   f"\t/* {', '.join(notes)} */");
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             notes = []
             if not node.byte_size is None:
@@ -461,13 +475,22 @@ class TypeDG:
             if key in shown:
                 return
             members = []
+            vlen = 0
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
                 cname = child.name
                 if cname in shown:
                     cname = f"{cname}__GOFF0x{node.offset:x}"
                 shown[cname] = "defined"
-                members.append(f"\t{cname} = {child.quantity}")
+                quantity = child.quantity
+                if quantity > 0x7FFFFFFF:
+                    # try to make it fit within int32_t
+                    quantity -= 0x80000000
+                members.append(f"\t{cname} = {quantity}")
+                vlen += 1
+                if vlen > self.CTF_MAX_VLEN:
+                    members.append(f"/* reached CTF_MAX_VLEN {vlen} */")
+                    break
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
