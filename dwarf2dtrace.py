@@ -229,9 +229,6 @@ class TypeDG:
         "this",
         "probe",
         "provider", # user-land DTrace
-
-        "SyncChannel",
-        "EventFlag",
     }
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
         while name in self.RESERVED_NAMES:
@@ -387,6 +384,7 @@ class TypeDG:
                   f"define {orig} as '{node.nickname}' */")
             print(f"typedef {self.gen_decl(dep, node.nickname)};")
             shown[key] = "defined"
+            self.RESERVED_NAMES.add(node.nickname)
             return
 
         if node.tag in ("DW_TAG_structure_type",
