@@ -1,6 +1,6 @@
-# gen_dtrace_helper
+# dwarf2dtrace
 generate a C header file that can be used from DTrace from DWARF debug info
 
 # usage
-gen_dtrace_helper.py [ELFFILE]
+dwarf2dtrace.py [ELFFILE]
 
