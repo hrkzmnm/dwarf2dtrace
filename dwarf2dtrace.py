@@ -486,7 +486,7 @@ class TypeDG:
                     quantity -= 0x80000000
                 members.append(f"\t{cname} = {quantity}")
                 vlen += 1
-                if vlen > self.CTF_MAX_VLEN:
+                if vlen >= self.CTF_MAX_VLEN:
                     members.append(f"/* reached CTF_MAX_VLEN {vlen} */")
                     break
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
