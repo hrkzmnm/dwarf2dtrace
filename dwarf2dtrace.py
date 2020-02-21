@@ -443,8 +443,10 @@ class TypeDG:
                     raise ParseError(f"failed to track a member"
                                      f" {mtype.tag} '{mname}' {str(e)}")
                 if not child.bit_size is None:
-                    mname += f":{child.bit_size}"
-                if child.bit_offset and child.bit_offset != mloc * 8:
+                    # using misc. types for bit-fields is not safe on C
+                    members.append(f"\tint {mname}:{child.bit_size};"
+                                   f"\t/* {', '.join(notes)} */");
+                elif child.bit_offset and child.bit_offset != mloc * 8:
                     members.append(f"\t/*{self.gen_decl(mtype, mname)}*/ "
                                    f"int {mname};"
                                    f"\t/* {', '.join(notes)} */");
