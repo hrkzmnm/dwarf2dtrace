@@ -442,9 +442,13 @@ class TypeDG:
                 except ParseError as e:
                     raise ParseError(f"failed to track a member"
                                      f" {mtype.tag} '{mname}' {str(e)}")
-                if not child.bit_size is None:
-                    # using misc. types for bit-fields is not safe on C
-                    members.append(f"\tint {mname}:{child.bit_size};"
+                if not (child.bit_size is None):
+                        # using misc. types for bit-fields is not safe on C
+                    if child.bit_size > 32:
+                        mtype = "long"
+                    else:
+                        mtype = "int"
+                    members.append(f"\t{mtype} {mname}:{child.bit_size};"
                                    f"\t/* {', '.join(notes)} */");
                 elif child.bit_offset and child.bit_offset != mloc * 8:
                     members.append(f"\t/*{self.gen_decl(mtype, mname)}*/ "
@@ -476,6 +480,7 @@ class TypeDG:
                 return
             members = []
             vlen = 0
+            warn = None
             for child_goff in node.deps:
                 child = self.get_node(child_goff)
                 cname = child.name
@@ -489,11 +494,13 @@ class TypeDG:
                 members.append(f"\t{cname} = {quantity}")
                 vlen += 1
                 if vlen >= self.CTF_MAX_VLEN:
-                    members.append(f"/* reached CTF_MAX_VLEN {vlen} */")
+                    warn = f"/* reached CTF_MAX_VLEN {vlen} */"
                     break
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
+            if warn:
+                print("\t{warn}")
             print("};")
             shown[key] = "defined"
             return
