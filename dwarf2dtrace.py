@@ -52,6 +52,7 @@ class TypeDG:
     badchars = re.compile(".*[^A-Za-z0-9_ ]")
     VERBOSE = 0
     CTF_MAX_VLEN = 1023
+    PREDEFINED_TYPES = {"va_list"}
     def is_invalid_name(self, name: str):
         if self.badchars.match(name):
             return True
@@ -372,6 +373,8 @@ class TypeDG:
             if node.nickname.startswith("__builtin"):
                 if self.VERBOSE > 0:
                     print(f"/* skip {node.nickname}, must be system-defined */");
+                return
+            if node.nickname in self.PREDEFINED_TYPES:
                 return
             try:
                 self.track(dep, shown, stack, maybe_incomplete)
