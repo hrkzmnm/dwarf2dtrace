@@ -232,9 +232,6 @@ class TypeDG:
         "provider", # user-land DTrace
     }
     def gen_decl(self, node: Optional[Node], name: str = None) -> str:
-        while name in self.RESERVED_NAMES:
-            name = name + "_"
-
         if node is None:
             if name is None:
                 return "void"
@@ -432,6 +429,8 @@ class TypeDG:
                 mname = child.name
                 if not mname:
                     mname = f"unnamed{len(members)}__off0x{mloc:x}"
+                while mname in self.RESERVED_NAMES:
+                    mname = mname + "_"
                 if self.VERBOSE > 0:
                     print(f"// tracking {node.nickname} :: {mname}")
                 try:
@@ -497,13 +496,13 @@ class TypeDG:
                 members.append(f"\t{cname} = {quantity}")
                 vlen += 1
                 if vlen >= self.CTF_MAX_VLEN:
-                    warn = f"/* reached CTF_MAX_VLEN {vlen} */"
+                    warn = f"reached CTF_MAX_VLEN {vlen}"
                     break
             print(f"\n/* GOFF0x{node.offset:x} @ {node.src_location()} */")
             print(self.gen_decl(node) + " {")
             print(",\n".join(members))
-            if warn:
-                print("\t{warn}")
+            if not warn is None :
+                print(f"\t/* {warn} */")
             print("};")
             shown[key] = "defined"
             return
